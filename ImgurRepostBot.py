@@ -22,10 +22,12 @@ class ImgurRepostBot():
         self.failed_downvotes = []
         self.failed_comments = []
         self.comment_template = "Repost Nazi Bot has detected reposted content. Downvotes applied! This is an automated system. "
+        self.last_hash_flush = round(time.time())
 
         # General Options - Can be overridden from ini file
         self.leave_comment = False
         self.leave_downvote = False
+        self.hash_flush_interval = 20
 
         # Load The Config.  If We Can't Find It Abort
         config_file = os.path.join(os.getcwd(), 'bot.ini')
@@ -54,6 +56,9 @@ class ImgurRepostBot():
 
         if 'DownVote' in config['OPTIONS']:
             self.leave_downvote = config['OPTIONS']['Downvote']
+
+        if 'FlushInterval' in config['OPTIONS']:
+            self.hash_flush_interval = config['OPTIONS']['FlushInterval']
 
     def _verify_ini(self, config_file=None):
         """
@@ -182,39 +187,48 @@ class ImgurRepostBot():
                 except ImgurClientError as e:
                     print('Failed To Retry Comment On Image {}.  \nError: {}'.format(image_id, e))
 
+    def flush_stored_hashes(self):
+        """
+        Flush the hashes that we have stored.
+        """
+        print("Running Hash Checks")
+        self.last_hash_flush = round(time.time())
+        for current_hash in self.hashes_to_check:
+            print("Checking Hash {}".format(current_hash['hash']))
+            result, total_detections = self.check_for_repost(current_hash['hash'], current_hash['image_id'], current_hash['user'])
+            if result:
+                print("Found Reposted Image: https://imgur.com/gallery/" + current_hash['image_id'] )
+                if self.leave_downvote:
+                    self.downvote_repost(current_hash['image_id'])
+                if self.leave_comment:
+                    self.comment_repost(current_hash['image_id'], current_hash['hash'], total_detections)
+
+                for r in result:
+                    print("Original: https://imgur.com/gallery/" + r.image_id)
+                    self.detected_reposts.append({"image_id": current_hash['image_id'], "original_image": r.image_id})
+
+        self.hashes_to_check = []
+
+
+    def run(self):
+
+        while True:
+            self.insert_latest_images()
+            print("Total Pending Hashes To Check: {}".format(str(len(self.hashes_to_check))))
+            print("Total processed images: {}".format(str(len(self.processed_images))))
+            print("Total Reposts Found: {}".format(str(len(self.detected_reposts))))
+
+            if round(time.time()) - self.last_hash_flush > self.hash_flush_interval:
+                self.flush_stored_hashes()
+
+            time.sleep(5)
+
 
 def main():
     rcheck = ImgurRepostBot()
     print(str(len(rcheck.processed_images)))
 
-    count = 0
-    while True:
-        rcheck.insert_latest_images()
-        print("Total Pending Hashes To Check: {}".format(str(len(rcheck.hashes_to_check))))
-        print("Total processed images: {}".format(str(len(rcheck.processed_images))))
-        print("Total Reposts Found: {}".format(str(len(rcheck.detected_reposts))))
-
-        if count >= 5:
-            print("Running Hash Checks")
-            for hash in rcheck.hashes_to_check:
-                print("Checking Hash {}".format(hash['hash']))
-                result, total_detections = rcheck.check_for_repost(hash['hash'], hash['image_id'], hash['user'])
-                if result:
-                    print("Found Reposted Image: https://imgur.com/gallery/" + hash['image_id'] )
-                    if rcheck.leave_downvote:
-                        rcheck.downvote_repost(hash['image_id'])
-                    if rcheck.leave_comment:
-                        rcheck.comment_repost(hash['image_id'], hash['hash'], total_detections)
-
-                    for r in result:
-                        print("Original: https://imgur.com/gallery/" + r.image_id)
-                        rcheck.detected_reposts.append({"image_id": hash['image_id'], "original_image": r.image_id})
-            time.sleep(10)
-            rcheck.hashes_to_check = []
-            count = 0
-            continue
-        count += 1
-        time.sleep(5)
+    rcheck.run()
 
 
 
