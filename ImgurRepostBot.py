@@ -93,8 +93,6 @@ class ImgurRepostBot():
     def _generate_img(self, url=None):
         """
         Generate the image files provided from Imgur.  We pass the data straight from the request into PIL.Image
-        :param url:
-        :return:
         """
 
         img = None
