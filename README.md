@@ -19,6 +19,8 @@ In the bot.ini enter your Imgur API details along with your MySQL details.
 
 A template MySQL file can be found in the sql folder.
 
+Once ready run ImgurRepostBot.py
+
 **Required Libraries**
 
  - Sqlalchemy
