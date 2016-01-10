@@ -67,4 +67,6 @@ class ImgurRepostDB():
         if len(result) > 0:
             for r in result:
                 existing_records.append(r.image_id)
+
+        print('Loaded {} Records From Database'.format(len(existing_records)))
         return existing_records

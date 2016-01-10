@@ -11,7 +11,6 @@ import configparser
 import os
 import sys
 
-# TODO Make a customizable comment template
 # TODO Common memes with small text get flagged as repost
 
 class ImgurRepostBot():
@@ -23,19 +22,20 @@ class ImgurRepostBot():
         self.failed_downvotes = []  # Store failed downvotes for later processing
         self.failed_comments = []  # Store failed comments for later processing
         self.last_hash_flush = round(time.time())
+        self.config_file = os.path.join(os.getcwd(), 'bot.ini')
+        self.config_last_modified = round(os.path.getmtime(self.config_file))
+
 
         # General Options - Can be overridden from ini file
         self.leave_comment = False
         self.leave_downvote = False
         self.hash_flush_interval = 20
-        self.new_image_interval = 10
         self.comment_template = "We Have Detected Reposted Content.  Reference Hash: {}"
 
         # Load The Config.  If We Can't Find It Abort
-        config_file = os.path.join(os.getcwd(), 'bot.ini')
-        if os.path.isfile(config_file):
+        if os.path.isfile(self.config_file):
             config = configparser.ConfigParser()
-            config.read(config_file)
+            config.read(self.config_file)
             self._verify_ini(config_file=config)
         else:
             print('ERROR: Unable To Load ini File.  Ensure bot.ini is in the CWD')
@@ -100,6 +100,18 @@ class ImgurRepostBot():
             for val in missing_values:
                 print(val)
             sys.exit(1)
+
+    def reload_ini(self):
+        """
+        Check if the config has been updated.  If it has reload it.
+        """
+
+        if round(os.path.getmtime(self.config_file)) > self.config_last_modified:
+            print('Reloading .ini File')
+            config = configparser.ConfigParser()
+            config.read(self.config_file)
+            self._set_ini_options(config)
+            self.config_last_modified = round(os.path.getmtime(self.config_file))
 
     def _generate_hash(self, img):
         """
@@ -171,6 +183,13 @@ class ImgurRepostBot():
             print('Error Voting: {}'.format(e))
 
     def comment_repost(self, image_id=None, values=None):
+        """
+        Leave a comment on the detected repost.
+        :param image_id: ID of image to leave comment on.
+        :param values: Values to be inserted into the message template
+        :return:
+        """
+
         print('Leaving Comment On {}'.format(image_id))
 
         message = self.build_comment_message(values=values)
@@ -257,6 +276,7 @@ class ImgurRepostBot():
                     if self.leave_downvote:
                         self.downvote_repost(current_hash['image_id'])
 
+                    # Need to think of a better way to do the comments.  Needs to be more easily user customizable
                     if self.leave_comment:
                         message_values = []
                         message_values.append(len(result))
@@ -269,16 +289,21 @@ class ImgurRepostBot():
 
             self.hashes_to_check = []
 
-
     def run(self):
 
         while True:
             self.insert_latest_images()
             self.flush_failed_votes_and_comments()
             self.flush_stored_hashes()
+            self.reload_ini()
             print('\nTotal Pending Hashes To Check: {}'.format(str(len(self.hashes_to_check))))
             print('Total processed images: {}'.format(str(len(self.processed_images))))
             print('Total Reposts Found: {}'.format(str(len(self.detected_reposts))))
+
+            print('\n\n**Current Settings **')
+            print('Leave Comments: {}'.format(self.leave_comment))
+            print('Leave Downvote: {} '.format(self.leave_downvote))
+            print('Flush Hashes Every {} Seconds\n'.format(self.hash_flush_interval))
 
             time.sleep(5)
 
