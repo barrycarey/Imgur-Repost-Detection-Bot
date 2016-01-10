@@ -21,6 +21,22 @@ A template MySQL file can be found in the sql folder.
 
 Once ready run ImgurRepostBot.py
 
+**Notable Features**
+
+ - Custom Comment Templates Using {} As Value Placeholders
+ - Enable / Disable Automatic Downvote and Comment via bot.ini
+ - Modify settings in the .ini file while the bot is running
+ - Auto Retry failed comments and downvotes.  If Imgur is over capacity they will be saved and tried again later
+
+**Comment Template Usage**
+
+You can specify a custom comment template via the bot.ini file.  This allows you to use {} as place holders for values in the comment. 
+
+You then pass a list of the values into comment_repost(values=values).  It will format the comment based on your template and the list of values you pass in. 
+
+Example Comment Template:  Detected Reposted Image with ID {} and Hash {}
+Example Values:  ['s78sdfy', '31b132726521b372]
+
 **Required Libraries**
 
  - Sqlalchemy
