@@ -16,7 +16,7 @@ class ImgurRepostDB():
         try:
             Base.prepare(engine, reflect=True)
         except (OperationalError, InternalError) as e:
-            print("Error Connecting To Database {}".format(e))
+            print('Error Connecting To Database {}'.format(e))
             sys.exit(1)
 
         self.imgur_reposts = Base.classes.imgur_reposts
@@ -30,7 +30,7 @@ class ImgurRepostDB():
         :param user: Imgur user that posted the image
         :param image_id: the Imgur ID of the image
         """
-        print("Inserting " + url)
+        print('Inserting {}'.format(url))
         self.session.add(self.imgur_reposts(date=datetime.datetime.utcnow(), url=url, hash=hash, user=user, image_id=image_id))
         self.session.flush()
         self.session.commit()
