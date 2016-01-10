@@ -251,16 +251,16 @@ class ImgurRepostBot():
                 try:
                     message = self.build_comment_message(values=failed['values'])
                     self.imgur_client.gallery_comment(failed['image_id'], message)
-                    self.failed_comments.remove(image_id)
+                    self.failed_comments.remove(failed['image_id'])
                 except ImgurClientError as e:
                     print('Failed To Retry Comment On Image {}.  \nError: {}'.format(failed['image_id'], e))
 
-    def flush_stored_hashes(self):
+    def flush_stored_hashes(self, force_quit=False):
         """
         Flush the hashes that we have stored.
         """
 
-        if round(time.time()) - self.last_hash_flush > self.hash_flush_interval:
+        if round(time.time()) - self.last_hash_flush > self.hash_flush_interval or force_quit:
 
             print('Running Hash Checks')
             self.last_hash_flush = round(time.time())
@@ -292,25 +292,36 @@ class ImgurRepostBot():
     def run(self):
 
         while True:
+
+            os.system('cls')
+
+            print('** Current Settings **')
+            print('Leave Comments: {}'.format(self.leave_comment))
+            print('Leave Downvote: {} '.format(self.leave_downvote))
+            print('Flush Hashes Every {} Seconds\n'.format(self.hash_flush_interval))
+
+            print('Total Pending Hashes To Check: {}'.format(str(len(self.hashes_to_check))))
+            print('Total processed images: {}'.format(str(len(self.processed_images))))
+            print('Total Reposts Found: {}\n'.format(str(len(self.detected_reposts))))
+
             self.insert_latest_images()
             self.flush_failed_votes_and_comments()
             self.flush_stored_hashes()
             self.reload_ini()
-            print('\nTotal Pending Hashes To Check: {}'.format(str(len(self.hashes_to_check))))
-            print('Total processed images: {}'.format(str(len(self.processed_images))))
-            print('Total Reposts Found: {}'.format(str(len(self.detected_reposts))))
 
-            print('\n\n**Current Settings **')
-            print('Leave Comments: {}'.format(self.leave_comment))
-            print('Leave Downvote: {} '.format(self.leave_downvote))
-            print('Flush Hashes Every {} Seconds\n'.format(self.hash_flush_interval))
+
 
             time.sleep(5)
 
 
 def main():
     rcheck = ImgurRepostBot()
-    rcheck.run()
+
+    try:
+        rcheck.run()
+    except KeyboardInterrupt:
+        print('Keyboard Quit Detected.  Flushing Remaining Hashes')
+        rcheck.flush_stored_hashes(force_quit=True)
 
 
 
