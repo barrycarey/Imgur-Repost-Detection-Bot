@@ -6,6 +6,10 @@ import datetime
 import sys
 
 class ImgurRepostDB():
+    """
+    Main class used for dealing with the database.  From here we deal with adding new images to the database and
+    checking hashes to find reposted content
+    """
 
     def __init__(self, db_user, db_pass, db_host, db_name):
 
