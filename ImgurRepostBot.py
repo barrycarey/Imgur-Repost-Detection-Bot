@@ -49,7 +49,6 @@ class ImgurRepostBot():
                                      config['MYSQL']['Database'])
 
         # Pull all previous images from DB so we can compare image IDs without hitting DB each time
-        # TODO We may only need to pull last 24 hours.  Main reason for this is to prevent hitting the same image.
         self.processed_images = self.db_conn.build_existing_ids()
 
         self._set_ini_options(config)
@@ -155,7 +154,7 @@ class ImgurRepostBot():
 
     def insert_latest_images(self):
         """
-        Pull all current images from user sub, get the hash and insert into database.
+        Pull all current images from user sub, get the hashes and insert into database.
         """
         items = self.generate_latest_images()
 
@@ -164,7 +163,7 @@ class ImgurRepostBot():
             if item.id in self.processed_images:
                 continue
 
-            img = self._generate_img(url=item.link) # Download the image data and convert to PIL image
+            img = self._generate_img(url=item.link)
             if img:
                 image_hash = self._generate_hash(img)
                 if image_hash:
@@ -308,8 +307,6 @@ class ImgurRepostBot():
             self.flush_failed_votes_and_comments()
             self.flush_stored_hashes()
             self.reload_ini()
-
-
 
             time.sleep(5)
 

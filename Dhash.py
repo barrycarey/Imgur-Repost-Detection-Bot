@@ -12,7 +12,7 @@ def dhash(image, hash_size=8):
     if not isinstance(image, (GifImageFile, JpegImageFile, PngImageFile)):
         return False
 
-    # Grayscal and shrink the image in one step
+    # Grayscale and shrink the image
     try:
         image = image.convert('L').resize((hash_size + 1, hash_size), Image.ANTIALIAS)
     except (TypeError, OSError) as e:
@@ -21,7 +21,7 @@ def dhash(image, hash_size=8):
 
     pixels = list(image.getdata())
 
-    # Compare Ajecent Pixels
+    # Compare Adjacent Pixels
     difference = []
     for row in list(range(hash_size)):
         for col in list(range(hash_size)):
