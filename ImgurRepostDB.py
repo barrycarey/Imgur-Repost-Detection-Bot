@@ -53,6 +53,7 @@ class ImgurRepostDB():
                 if not row.image_id == image_id and not row.user == user:
                     results.append(row)
 
+        # TODO Don't think we need to return the length of result here.
         return results, len(result)
 
     def build_existing_ids(self):

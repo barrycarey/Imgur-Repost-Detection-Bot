@@ -12,22 +12,24 @@ import os
 import sys
 
 # TODO Make a customizable comment template
+# TODO Common memes with small text get flagged as repost
 
 class ImgurRepostBot():
 
     def __init__(self):
 
         self.detected_reposts = []
-        self.hashes_to_check = []
-        self.failed_downvotes = []
-        self.failed_comments = []
-        self.comment_template = "Repost Nazi Bot has detected reposted content. Downvotes applied! This is an automated system. "
+        self.hashes_to_check = []  # Store unchecked hashes for batch processing
+        self.failed_downvotes = []  # Store failed downvotes for later processing
+        self.failed_comments = []  # Store failed comments for later processing
         self.last_hash_flush = round(time.time())
 
         # General Options - Can be overridden from ini file
         self.leave_comment = False
         self.leave_downvote = False
         self.hash_flush_interval = 20
+        self.new_image_interval = 10
+        self.comment_template = "We Have Detected Reposted Content.  Reference Hash: {}"
 
         # Load The Config.  If We Can't Find It Abort
         config_file = os.path.join(os.getcwd(), 'bot.ini')
@@ -50,15 +52,27 @@ class ImgurRepostBot():
         # TODO We may only need to pull last 24 hours.  Main reason for this is to prevent hitting the same image.
         self.processed_images = self.db_conn.build_existing_ids()
 
+        self._set_ini_options(config)
+
+
+    def _set_ini_options(self, config):
+        """
+        Set the optional values found in the ini
+        """
+
         # Load Options From Config
         if 'LeaveComment' in config['OPTIONS']:
-            self.leave_comment = config['OPTIONS']['LeaveComment']
+            self.leave_comment = config['OPTIONS'].getboolean('LeaveComment')
 
         if 'DownVote' in config['OPTIONS']:
-            self.leave_downvote = config['OPTIONS']['Downvote']
+            self.leave_downvote = config['OPTIONS'].getboolean('Downvote')
 
         if 'FlushInterval' in config['OPTIONS']:
-            self.hash_flush_interval = config['OPTIONS']['FlushInterval']
+            self.hash_flush_interval = int(config['OPTIONS']['FlushInterval'])
+
+        if 'CommentTemplate' in config['OPTIONS']:
+            self.comment_template = config['OPTIONS']['CommentTemplate']
+
 
     def _verify_ini(self, config_file=None):
         """
@@ -68,7 +82,6 @@ class ImgurRepostBot():
         imgur_values = ['ClientID', 'ClientSecret', 'AccessToken', 'RefreshToken']
         mysql_values = ['Host', 'User', 'Password', 'Database']
         missing_values = []
-
 
         if not config_file:
             print("No Config Filed Supplied.  Aborting")
@@ -117,13 +130,14 @@ class ImgurRepostBot():
         return self.db_conn.check_repost(hash, image_id, user)
 
     def generate_latest_images(self, section='user', sort='time', page=0):
+
         items = []
         try:
             temp = self.imgur_client.gallery(section=section, sort=sort, page=page, show_viral=False)
             if temp:
                 items = [i for i in temp if not i.is_album]
         except ImgurClientError as e:
-            print("Error Getting Gallery: {}".format(e))
+            print('Error Getting Gallery: {}'.format(e))
 
         return items
 
@@ -154,16 +168,51 @@ class ImgurRepostBot():
             self.imgur_client.gallery_item_vote(image_id, vote="down")
         except ImgurClientError as e:
             self.failed_downvotes.append(image_id)
-            print("Error Voting: {}".format(e))
+            print('Error Voting: {}'.format(e))
 
-    def comment_repost(self, image_id, hash, detections):
-        print("Leaving Comment On " + image_id)
-        message = self.comment_template
+    def comment_repost(self, image_id=None, values=None):
+        print('Leaving Comment On {}'.format(image_id))
+
+        message = self.build_comment_message(values=values)
+
         try:
             self.imgur_client.gallery_comment(image_id, message)
         except ImgurClientError as e:
-            self.failed_comments.append(image_id)
-            print("Error Posting Commment: {}".format(e))
+            self.failed_comments.append({'image_id': image_id, 'values': values})
+            print('Error Posting Commment: {}'.format(e))
+
+    def build_comment_message(self, values=None):
+        """
+        Build the message to use in the comment.
+
+        We first parse the comment template look for {} to count how many custom values we need to insert.   We make
+        sure the number we find matches the number in the values arg.
+
+        Example Comment Template: Detected Reposted Image with ID {} and Hash {}
+        Example Values: ['s78sdfy', '31b132726521b372]
+        """
+
+        # Make sure we got a list
+        if values and isinstance(values, list):
+            total_values = len(values)
+        else:
+            total_values = 0
+
+        format_count = 0
+        for i in self.comment_template:
+            if i == '{':
+                format_count += 1
+
+        # If there are no format options return the raw template
+        if format_count == 0:
+            return self.comment_template
+
+        if not format_count == total_values:
+            print('Provided Values Do Not Match Format Places In Comment Template')
+            print('Format Spots: {} \nProvided Values: {}'.format(format_count, total_values))
+            return self.comment_template
+
+        return self.comment_template.format(*values)
 
     def flush_failed_votes_and_comments(self):
         """
@@ -179,55 +228,63 @@ class ImgurRepostBot():
                     print('Failed To Retry Downvote On Image {}.  \nError: {}'.format(image_id, e))
 
         if self.failed_comments:
-            for image_id in self.failed_comments:
+            for failed in self.failed_comments:
                 try:
-                    message = self.comment_template
-                    self.imgur_client.gallery_comment(image_id, message)
+                    message = self.build_comment_message(values=failed['values'])
+                    self.imgur_client.gallery_comment(failed['image_id'], message)
                     self.failed_comments.remove(image_id)
                 except ImgurClientError as e:
-                    print('Failed To Retry Comment On Image {}.  \nError: {}'.format(image_id, e))
+                    print('Failed To Retry Comment On Image {}.  \nError: {}'.format(failed['image_id'], e))
 
     def flush_stored_hashes(self):
         """
         Flush the hashes that we have stored.
         """
-        print("Running Hash Checks")
-        self.last_hash_flush = round(time.time())
-        for current_hash in self.hashes_to_check:
-            print("Checking Hash {}".format(current_hash['hash']))
-            result, total_detections = self.check_for_repost(current_hash['hash'], current_hash['image_id'], current_hash['user'])
-            if result:
-                print("Found Reposted Image: https://imgur.com/gallery/" + current_hash['image_id'] )
-                if self.leave_downvote:
-                    self.downvote_repost(current_hash['image_id'])
-                if self.leave_comment:
-                    self.comment_repost(current_hash['image_id'], current_hash['hash'], total_detections)
 
-                for r in result:
-                    print("Original: https://imgur.com/gallery/" + r.image_id)
-                    self.detected_reposts.append({"image_id": current_hash['image_id'], "original_image": r.image_id})
+        if round(time.time()) - self.last_hash_flush > self.hash_flush_interval:
 
-        self.hashes_to_check = []
+            print('Running Hash Checks')
+            self.last_hash_flush = round(time.time())
+            for current_hash in self.hashes_to_check:
+
+                print('Checking Hash {}'.format(current_hash['hash']))
+                result, total_detections = self.check_for_repost(current_hash['hash'], current_hash['image_id'], current_hash['user'])
+
+                if result:
+
+                    print('Found Reposted Image: https://imgur.com/gallery/{}'.format(current_hash['image_id']))
+
+                    if self.leave_downvote:
+                        self.downvote_repost(current_hash['image_id'])
+
+                    if self.leave_comment:
+                        message_values = []
+                        message_values.append(len(result))
+                        message_values.append(current_hash['hash'])
+                        self.comment_repost(image_id=current_hash['image_id'], values=message_values)
+
+                    for r in result:
+                        print('Original: https://imgur.com/gallery/{}'.format(r.image_id))
+                        self.detected_reposts.append({"image_id": current_hash['image_id'], "original_image": r.image_id})
+
+            self.hashes_to_check = []
 
 
     def run(self):
 
         while True:
             self.insert_latest_images()
-            print("Total Pending Hashes To Check: {}".format(str(len(self.hashes_to_check))))
-            print("Total processed images: {}".format(str(len(self.processed_images))))
-            print("Total Reposts Found: {}".format(str(len(self.detected_reposts))))
-
-            if round(time.time()) - self.last_hash_flush > self.hash_flush_interval:
-                self.flush_stored_hashes()
+            self.flush_failed_votes_and_comments()
+            self.flush_stored_hashes()
+            print('\nTotal Pending Hashes To Check: {}'.format(str(len(self.hashes_to_check))))
+            print('Total processed images: {}'.format(str(len(self.processed_images))))
+            print('Total Reposts Found: {}'.format(str(len(self.detected_reposts))))
 
             time.sleep(5)
 
 
 def main():
     rcheck = ImgurRepostBot()
-    print(str(len(rcheck.processed_images)))
-
     rcheck.run()
 
 
