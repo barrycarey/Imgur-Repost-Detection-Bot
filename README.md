@@ -40,10 +40,10 @@ Example Values:  ['s78sdfy', '31b132726521b372]
 
 **Required Libraries**
 
- - Sqlalchemy
- - imgurpython
- - Pillow
- - PyMysql
+ - [Sqlalchemy](http://www.sqlalchemy.org/)
+ - [imgurpython](https://github.com/Imgur/imgurpython)
+ - [Pillow](https://python-pillow.github.io/)
+ - [PyMysql](https://github.com/PyMySQL/PyMySQL)
 
 **Disclaimer**
 
@@ -55,4 +55,4 @@ I made this bot as coding practice.
 
 I'm aware the functionality is similar to the [RepostStatistics](http://imgur.com/user/RepostStatistics).
 
-**Use At Your Own Risk**
+**Use At Your Own Risk**	
