@@ -40,10 +40,10 @@ Example Values:  ['s78sdfy', '31b132726521b372]
 
 **Required Libraries**
 
- - [Sqlalchemy](http://www.sqlalchemy.org/)
- - [imgurpython](https://github.com/Imgur/imgurpython)
- - [Pillow](https://python-pillow.github.io/)
- - [PyMysql](https://github.com/PyMySQL/PyMySQL)
+ - <a href="http://www.sqlalchemy.org/" target="_blank">Sqlalchemy</a>
+ - <a href="https://github.com/Imgur/imgurpython" target="_blank">imgurpython</a>
+ - <a href="https://python-pillow.github.io/" target="_blank">Pillow</a>
+ - <a href="https://github.com/PyMySQL/PyMySQL/" target="_blank">PyMysql</a>
 
 **Disclaimer**
 
