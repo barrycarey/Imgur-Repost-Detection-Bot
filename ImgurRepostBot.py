@@ -1,6 +1,6 @@
 from ImgurRepostDB import ImgurRepostDB
 from imgurpython import ImgurClient
-from imgurpython.helpers.error import ImgurClientError
+from imgurpython.helpers.error import ImgurClientError, ImgurClientRateLimitError
 from Dhash import dhash
 from urllib import request
 from urllib.error import HTTPError
@@ -24,12 +24,14 @@ class ImgurRepostBot():
         self.last_hash_flush = round(time.time())
         self.config_file = os.path.join(os.getcwd(), 'bot.ini')
         self.config_last_modified = round(os.path.getmtime(self.config_file))
+        self.delay_between_requests = 5  # Changed on the fly depending on remaining credits and time until reset
 
 
         # General Options - Can be overridden from ini file
         self.leave_comment = False
         self.leave_downvote = False
         self.hash_flush_interval = 20
+        self.min_time_between_requests = 5
         self.comment_template = "We Have Detected Reposted Content.  Reference Hash: {}"
 
         # Load The Config.  If We Can't Find It Abort
@@ -71,6 +73,9 @@ class ImgurRepostBot():
 
         if 'CommentTemplate' in config['OPTIONS']:
             self.comment_template = config['OPTIONS']['CommentTemplate']
+
+        if 'MinTimeBetweenRequests' in config['OPTIONS']:
+            self.min_time_between_requests = int(config['OPTIONS']['MinTimeBetweenRequests'])
 
 
     def _verify_ini(self, config_file=None):
@@ -142,12 +147,14 @@ class ImgurRepostBot():
 
     def generate_latest_images(self, section='user', sort='time', page=0):
 
+        self._adjust_rate_limit_timing()
+
         items = []
         try:
             temp = self.imgur_client.gallery(section=section, sort=sort, page=page, show_viral=False)
             if temp:
                 items = [i for i in temp if not i.is_album]
-        except ImgurClientError as e:
+        except (ImgurClientError, ImgurClientRateLimitError) as e:
             print('Error Getting Gallery: {}'.format(e))
 
         return items
@@ -157,6 +164,9 @@ class ImgurRepostBot():
         Pull all current images from user sub, get the hashes and insert into database.
         """
         items = self.generate_latest_images()
+
+        if not items:
+            return
 
         # Don't add again if we have already done this image ID
         for item in items:
@@ -195,7 +205,7 @@ class ImgurRepostBot():
 
         try:
             self.imgur_client.gallery_comment(image_id, message)
-        except ImgurClientError as e:
+        except (ImgurClientError, ImgurClientRateLimitError) as e:
             self.failed_comments.append({'image_id': image_id, 'values': values})
             print('Error Posting Commment: {}'.format(e))
 
@@ -242,7 +252,7 @@ class ImgurRepostBot():
                 try:
                     self.imgur_client.gallery_item_vote(image_id, vote="down")
                     self.failed_downvotes.remove(image_id)
-                except ImgurClientError as e:
+                except (ImgurClientError, ImgurClientRateLimitError) as e:
                     print('Failed To Retry Downvote On Image {}.  \nError: {}'.format(image_id, e))
 
         if self.failed_comments:
@@ -251,7 +261,7 @@ class ImgurRepostBot():
                     message = self.build_comment_message(values=failed['values'])
                     self.imgur_client.gallery_comment(failed['image_id'], message)
                     self.failed_comments.remove(failed['image_id'])
-                except ImgurClientError as e:
+                except (ImgurClientError, ImgurClientRateLimitError) as e:
                     print('Failed To Retry Comment On Image {}.  \nError: {}'.format(failed['image_id'], e))
 
     def flush_stored_hashes(self, force_quit=False):
@@ -288,27 +298,52 @@ class ImgurRepostBot():
 
             self.hashes_to_check = []
 
+    def _adjust_rate_limit_timing(self):
+        """
+        Adjust the timing used between request to spread all requests over allowed rate limit
+
+        """
+        self.imgur_client.credits = self.imgur_client.get_credits()  # Refresh the credit data
+
+        remaining_credits = self.imgur_client.credits['ClientRemaining']
+        reset_time = self.imgur_client.credits['UserReset']
+        remaining_seconds = reset_time - round(time.time())
+        seconds_per_credit = round(remaining_seconds / remaining_credits)
+
+        print('Raw Seconds Per Credit: {}'.format(seconds_per_credit))
+
+        if seconds_per_credit < self.min_time_between_requests:
+            self.delay_between_requests = self.min_time_between_requests
+        else:
+            self.delay_between_requests = seconds_per_credit
+
+
     def run(self):
 
         while True:
 
             os.system('cls')
 
+            print('** Current Stats **')
+            print('Total Pending Hashes To Check: {}'.format(str(len(self.hashes_to_check))))
+            print('Total processed images: {}'.format(str(len(self.processed_images))))
+            print('Total Reposts Found: {}\n'.format(str(len(self.detected_reposts))))
+
             print('** Current Settings **')
             print('Leave Comments: {}'.format(self.leave_comment))
             print('Leave Downvote: {} '.format(self.leave_downvote))
             print('Flush Hashes Every {} Seconds\n'.format(self.hash_flush_interval))
 
-            print('Total Pending Hashes To Check: {}'.format(str(len(self.hashes_to_check))))
-            print('Total processed images: {}'.format(str(len(self.processed_images))))
-            print('Total Reposts Found: {}\n'.format(str(len(self.detected_reposts))))
+            print('** API Settings **')
+            print('Remaining Credits: {}'.format(self.imgur_client.credits['ClientRemaining']))
+            print('Delay Between Requests: {}\n'.format(self.delay_between_requests))
 
             self.insert_latest_images()
             self.flush_failed_votes_and_comments()
             self.flush_stored_hashes()
             self.reload_ini()
 
-            time.sleep(5)
+            time.sleep(self.delay_between_requests)
 
 
 def main():
