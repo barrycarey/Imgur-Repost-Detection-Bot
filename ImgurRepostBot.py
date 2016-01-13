@@ -11,7 +11,7 @@ import configparser
 import os
 import sys
 
-# TODO Common memes with small text get flagged as repost
+# TODO Common memes with small text get flagged as repost.  Need to increase to 128+ bit hash
 
 class ImgurRepostBot():
 
@@ -30,6 +30,7 @@ class ImgurRepostBot():
         # General Options - Can be overridden from ini file
         self.leave_comment = False
         self.leave_downvote = False
+        self.log_reposts = False
         self.hash_flush_interval = 20
         self.min_time_between_requests = 5
         self.comment_template = "We Have Detected Reposted Content.  Reference Hash: {}"
@@ -77,6 +78,9 @@ class ImgurRepostBot():
         if 'MinTimeBetweenRequests' in config['OPTIONS']:
             self.min_time_between_requests = int(config['OPTIONS']['MinTimeBetweenRequests'])
 
+        if 'LogReposts' in config['OPTIONS']:
+            self.log_reposts = config['OPTIONS'].getboolean('LogReposts')
+
 
     def _verify_ini(self, config_file=None):
         """
@@ -117,11 +121,11 @@ class ImgurRepostBot():
             self._set_ini_options(config)
             self.config_last_modified = round(os.path.getmtime(self.config_file))
 
-    def _generate_hash(self, img):
+    def _generate_hash(self, img, hash_size=8):
         """
         Generate the dhash of the provided image.
         """
-        return dhash(img)
+        return dhash(img, hash_size=hash_size)
 
 
     def _generate_img(self, url=None):
@@ -142,8 +146,8 @@ class ImgurRepostBot():
 
         return img if img else None
 
-    def check_for_repost(self, hash, image_id, user):
-        return self.db_conn.check_repost(hash, image_id, user)
+    def check_for_repost(self, hash_to_check, image_id, user):
+        return self.db_conn.check_repost(hash_to_check, image_id, user)
 
     def generate_latest_images(self, section='user', sort='time', page=0):
 
@@ -159,11 +163,11 @@ class ImgurRepostBot():
 
         return items
 
-    def insert_latest_images(self):
+    def insert_latest_images(self, section='user', sort='time', page=0):
         """
         Pull all current images from user sub, get the hashes and insert into database.
         """
-        items = self.generate_latest_images()
+        items = self.generate_latest_images(section=section, sort=sort, page=page)
 
         if not items:
             return
@@ -288,28 +292,61 @@ class ImgurRepostBot():
                     if self.leave_downvote:
                         self.downvote_repost(current_hash['image_id'])
 
-                    # Need to think of a better way to do the comments.  Needs to be more easily user customizable
+                    # TODO Need to think of a better way to do the comments.  Needs to be more easily user customizable
                     if self.leave_comment:
                         message_values = []
                         message_values.append(len(result))
                         message_values.append(current_hash['hash'])
                         self.comment_repost(image_id=current_hash['image_id'], values=message_values)
 
+                    matching_images = []
                     for r in result:
                         print('Original: https://imgur.com/gallery/{}'.format(r.image_id))
-                        self.detected_reposts.append({"image_id": current_hash['image_id'], "original_image": r.image_id})
+                        matching_images.append('https://imgur.com/gallery/{}'.format(r.image_id))
+
+                    self.detected_reposts.append({"image_id": current_hash['image_id'], "original_image": matching_images})
+
+                    if self.log_reposts:
+                        self.log_repost(repost_url='https://imgur.com/gallery/{}'.format(current_hash['image_id']),
+                                        matching_images=matching_images)
 
             self.hashes_to_check = []
+
+    def log_repost(self, repost_url=None, matching_images=None):
+        """
+        Log the reposted image out to a file.  Also include all matching images we found
+        """
+        log_file = os.path.join(os.getcwd(), "repost.log")  # TODO Move to config
+
+        if repost_url and matching_images:
+            with open(log_file, 'a+') as log:
+                log.write('Repost Image: {}\n'.format(repost_url))
+                log.write('Matching Images: \n')
+                for img in matching_images:
+                    log.write('- {}\n'.format(img))
+                log.write('\n\n')
+        else:
+            print('LOG ERROR: Missing Original URL or Matching Images')
+            return
+
 
     def _adjust_rate_limit_timing(self):
         """
         Adjust the timing used between request to spread all requests over allowed rate limit
 
         """
+
+        remaining_credits_before = int(self.imgur_client.credits['ClientRemaining'])
         self.imgur_client.credits = self.imgur_client.get_credits()  # Refresh the credit data
 
+        # Imgur API sometimes returns 12500 credits remaining in error.  If this happens don't update request delay.
+        # Otherwise the delay will drop to the minimum set in the config and can cause premature credit exhaustion
+        if int(self.imgur_client.credits['ClientRemaining']) - remaining_credits_before > 100:
+            print('Imgur API Returned Wrong Remaining Credits.  Keeping Last Request Delay Time')
+            return
+
         remaining_credits = self.imgur_client.credits['ClientRemaining']
-        reset_time = self.imgur_client.credits['UserReset']
+        reset_time = self.imgur_client.credits['UserReset'] + 240  # Add a 4 minute buffer so we don't cut it so close
         remaining_seconds = reset_time - round(time.time())
         seconds_per_credit = round(remaining_seconds / remaining_credits)
 
@@ -339,7 +376,13 @@ class ImgurRepostBot():
             print('Remaining Credits: {}'.format(self.imgur_client.credits['ClientRemaining']))
             if self.imgur_client.credits['UserReset']:
                 print('Minutes Until Credit Reset: {}'.format(round((int(self.imgur_client.credits['UserReset']) - time.time()) / 60)))
-            print('Delay Between Requests: {}\n'.format(self.delay_between_requests))
+
+            # Make it clear we are overriding the default delay to meet credit refill window
+            if self.delay_between_requests == self.min_time_between_requests:
+                request_delay = self.delay_between_requests
+            else:
+                request_delay = str(self.delay_between_requests) + ' (Overridden By Rate Limit)'
+            print('Delay Between Requests: {}\n'.format(request_delay))
 
             self.insert_latest_images()
             self.flush_failed_votes_and_comments()
@@ -354,8 +397,9 @@ def main():
 
     try:
         rcheck.run()
-    except:
+    except Exception as e:
         print('An Exception Occurred During Execution.  Flushing Remaining Hashes')
+        print('ERROR: {}'.format(e) )
         rcheck.flush_stored_hashes(force_quit=True)
 
 
