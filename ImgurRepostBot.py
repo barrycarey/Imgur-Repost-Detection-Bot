@@ -266,7 +266,10 @@ class ImgurRepostBot():
 
     def flush_stored_hashes(self, force_quit=False):
         """
-        Flush the hashes that we have stored.
+        Flush all hashes we have stored up.  When we flush we compare each hash against the database to see if it's a
+        repost.
+
+        :param force_quit: When true we ignore the flush interval and do the flush regardless.
         """
 
         if round(time.time()) - self.last_hash_flush > self.hash_flush_interval or force_quit:
@@ -310,8 +313,6 @@ class ImgurRepostBot():
         remaining_seconds = reset_time - round(time.time())
         seconds_per_credit = round(remaining_seconds / remaining_credits)
 
-        print('Raw Seconds Per Credit: {}'.format(seconds_per_credit))
-
         if seconds_per_credit < self.min_time_between_requests:
             self.delay_between_requests = self.min_time_between_requests
         else:
@@ -336,6 +337,8 @@ class ImgurRepostBot():
 
             print('** API Settings **')
             print('Remaining Credits: {}'.format(self.imgur_client.credits['ClientRemaining']))
+            if self.imgur_client.credits['UserReset']:
+                print('Minutes Until Credit Reset: {}'.format(round((int(self.imgur_client.credits['UserReset']) - time.time()) / 60)))
             print('Delay Between Requests: {}\n'.format(self.delay_between_requests))
 
             self.insert_latest_images()
@@ -351,8 +354,8 @@ def main():
 
     try:
         rcheck.run()
-    except KeyboardInterrupt:
-        print('Keyboard Quit Detected.  Flushing Remaining Hashes')
+    except:
+        print('An Exception Occurred During Execution.  Flushing Remaining Hashes')
         rcheck.flush_stored_hashes(force_quit=True)
 
 
