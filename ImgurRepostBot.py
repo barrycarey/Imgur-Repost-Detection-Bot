@@ -33,6 +33,7 @@ class ImgurRepostBot():
         self.log_reposts = False
         self.hash_flush_interval = 20
         self.min_time_between_requests = 5
+        self.title_check_values = ['mrw', 'when', 'my reaction']
         self.comment_template = "We Have Detected Reposted Content.  Reference Hash: {}"
 
         # Load The Config.  If We Can't Find It Abort
@@ -81,6 +82,18 @@ class ImgurRepostBot():
         if 'LogReposts' in config['OPTIONS']:
             self.log_reposts = config['OPTIONS'].getboolean('LogReposts')
 
+        if 'ExcludeInTitle' in config['OPTIONS']:
+            temp = config['OPTIONS']['CommentTemplate'].split(',')
+
+            # Cleanup Any Spaces Added To Start Or End Of Values.  God help us if they add more than 1
+            for val in temp:
+                if val[0] == ' ':
+                    val = val[1:]
+                if val[-1] == ' ':
+                    val = val[0:len(val) - 1]
+
+                self.title_check_values.append(val.lower())
+
 
     def _verify_ini(self, config_file=None):
         """
@@ -115,7 +128,7 @@ class ImgurRepostBot():
         """
 
         if round(os.path.getmtime(self.config_file)) > self.config_last_modified:
-            print('Reloading .ini File')
+            print('Config Changes Detected, Reloading .ini File')
             config = configparser.ConfigParser()
             config.read(self.config_file)
             self._set_ini_options(config)
@@ -157,7 +170,7 @@ class ImgurRepostBot():
         try:
             temp = self.imgur_client.gallery(section=section, sort=sort, page=page, show_viral=False)
             if temp:
-                items = [i for i in temp if not i.is_album]
+                items = [i for i in temp if not i.is_album and not self.check_post_title(title=i.title)]
         except (ImgurClientError, ImgurClientRateLimitError) as e:
             print('Error Getting Gallery: {}'.format(e))
 
@@ -355,6 +368,17 @@ class ImgurRepostBot():
         else:
             self.delay_between_requests = seconds_per_credit
 
+    def check_post_title(self, title=None):
+        """
+        Checks the post title for values that we will use to skip over it
+        This allows us not to flag MRW posts and others as reposts
+        :return:
+        """
+
+        if not title:
+            return None
+
+        return [v for v in self.title_check_values if v in title.lower()]
 
     def run(self):
 
