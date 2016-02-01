@@ -6,6 +6,7 @@ from urllib import request
 from urllib.error import HTTPError
 from PIL import Image
 from io import BytesIO
+import threading
 import time
 import configparser
 import os
@@ -281,7 +282,7 @@ class ImgurRepostBot():
                 except (ImgurClientError, ImgurClientRateLimitError) as e:
                     print('Failed To Retry Comment On Image {}.  \nError: {}'.format(failed['image_id'], e))
 
-    def flush_stored_hashes(self, force_quit=False):
+    def flush_stored_hashes(self, hashes_to_check=None):
         """
         Flush all hashes we have stored up.  When we flush we compare each hash against the database to see if it's a
         repost.
@@ -289,41 +290,46 @@ class ImgurRepostBot():
         :param force_quit: When true we ignore the flush interval and do the flush regardless.
         """
 
+        print('Running Hash Checks')
+        self.last_hash_flush = round(time.time())
+        for current_hash in hashes_to_check:
+
+            #print('Checking Hash {}'.format(current_hash['hash']))
+            result, total_detections = self.check_for_repost(current_hash['hash'], current_hash['image_id'], current_hash['user'])
+
+            if result:
+
+                print('Found Reposted Image: https://imgur.com/gallery/{}'.format(current_hash['image_id']))
+
+                if self.leave_downvote:
+                    self.downvote_repost(current_hash['image_id'])
+
+                # TODO Need to think of a better way to do the comments.  Needs to be more easily user customizable
+                if self.leave_comment:
+                    message_values = []
+                    message_values.append(len(result))
+                    message_values.append(current_hash['hash'])
+                    self.comment_repost(image_id=current_hash['image_id'], values=message_values)
+
+                matching_images = []
+                for r in result:
+                    print('Original: https://imgur.com/gallery/{}'.format(r.image_id))
+                    matching_images.append('https://imgur.com/gallery/{}'.format(r.image_id))
+
+                self.detected_reposts.append({"image_id": current_hash['image_id'], "original_image": matching_images})
+
+                if self.log_reposts:
+                    self.log_repost(repost_url='https://imgur.com/gallery/{}'.format(current_hash['image_id']),
+                                    matching_images=matching_images)
+
+    def spawn_hash_check_thread(self, force_quit=False):
+
         if round(time.time()) - self.last_hash_flush > self.hash_flush_interval or force_quit:
-
-            print('Running Hash Checks')
-            self.last_hash_flush = round(time.time())
-            for current_hash in self.hashes_to_check:
-
-                print('Checking Hash {}'.format(current_hash['hash']))
-                result, total_detections = self.check_for_repost(current_hash['hash'], current_hash['image_id'], current_hash['user'])
-
-                if result:
-
-                    print('Found Reposted Image: https://imgur.com/gallery/{}'.format(current_hash['image_id']))
-
-                    if self.leave_downvote:
-                        self.downvote_repost(current_hash['image_id'])
-
-                    # TODO Need to think of a better way to do the comments.  Needs to be more easily user customizable
-                    if self.leave_comment:
-                        message_values = []
-                        message_values.append(len(result))
-                        message_values.append(current_hash['hash'])
-                        self.comment_repost(image_id=current_hash['image_id'], values=message_values)
-
-                    matching_images = []
-                    for r in result:
-                        print('Original: https://imgur.com/gallery/{}'.format(r.image_id))
-                        matching_images.append('https://imgur.com/gallery/{}'.format(r.image_id))
-
-                    self.detected_reposts.append({"image_id": current_hash['image_id'], "original_image": matching_images})
-
-                    if self.log_reposts:
-                        self.log_repost(repost_url='https://imgur.com/gallery/{}'.format(current_hash['image_id']),
-                                        matching_images=matching_images)
-
+            hashes = self.hashes_to_check
             self.hashes_to_check = []
+            thrd = threading.Thread(target=self.flush_stored_hashes, name='Hash Check Thread',
+                                    kwargs={'hashes_to_check': hashes})
+            thrd.start()
 
     def log_repost(self, repost_url=None, matching_images=None):
         """
@@ -349,6 +355,10 @@ class ImgurRepostBot():
 
         """
 
+        # API Fails To Return This At Times
+        if not self.imgur_client.credits['ClientRemaining']:
+            return
+
         remaining_credits_before = int(self.imgur_client.credits['ClientRemaining'])
         self.imgur_client.credits = self.imgur_client.get_credits()  # Refresh the credit data
 
@@ -356,12 +366,14 @@ class ImgurRepostBot():
         # Otherwise the delay will drop to the minimum set in the config and can cause premature credit exhaustion
         if int(self.imgur_client.credits['ClientRemaining']) - remaining_credits_before > 100:
             print('Imgur API Returned Wrong Remaining Credits.  Keeping Last Request Delay Time')
+            print('API Credits: ' + str(self.imgur_client.credits['ClientRemaining']))
+            print('Last Credits: ' + str(remaining_credits_before))
             return
 
         remaining_credits = self.imgur_client.credits['ClientRemaining']
         reset_time = self.imgur_client.credits['UserReset'] + 240  # Add a 4 minute buffer so we don't cut it so close
         remaining_seconds = reset_time - round(time.time())
-        seconds_per_credit = round(remaining_seconds / remaining_credits)
+        seconds_per_credit = round(remaining_seconds / remaining_credits)  # TODO Getting division by zero sometimes
 
         if seconds_per_credit < self.min_time_between_requests:
             self.delay_between_requests = self.min_time_between_requests
@@ -410,7 +422,7 @@ class ImgurRepostBot():
 
             self.insert_latest_images()
             self.flush_failed_votes_and_comments()
-            self.flush_stored_hashes()
+            self.spawn_hash_check_thread()
             self.reload_ini()
 
             time.sleep(self.delay_between_requests)
@@ -419,12 +431,13 @@ class ImgurRepostBot():
 def main():
     rcheck = ImgurRepostBot()
 
-    try:
-        rcheck.run()
-    except Exception as e:
-        print('An Exception Occurred During Execution.  Flushing Remaining Hashes')
-        print('ERROR: {}'.format(e) )
-        rcheck.flush_stored_hashes(force_quit=True)
+    # TODO This is sloppy.  Quick way to keep it running when I'm not watching it
+    while True:
+        try:
+            rcheck.run()
+        except:
+            print('An Exception Occurred During Execution.  Flushing Remaining Hashes')
+            rcheck.spawn_hash_check_thread(force_quit=True)
 
 
 

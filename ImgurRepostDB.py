@@ -65,6 +65,9 @@ class ImgurRepostDB():
         Build a list of all existing Image IDs in the database.  The prevents us from reinserting an image we have already
         checked.
         """
+
+        print('Loading Records From The Database.  This May Take Several Minutes.')
+
         # TODO We can probably limit this to last 24 hours of IDs.
         existing_records = []
         result = self.session.query(self.imgur_reposts).all()
