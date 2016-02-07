@@ -32,6 +32,8 @@ class ImgurRepostBot():
         self.leave_comment = False
         self.leave_downvote = False
         self.log_reposts = False
+        self.backfill = False
+        self.backfill_depth = 500
         self.hash_flush_interval = 20
         self.min_time_between_requests = 5
         self.title_check_values = ['mrw', 'when', 'my reaction']
@@ -58,6 +60,23 @@ class ImgurRepostBot():
 
         self._set_ini_options(config)
 
+        if self.backfill:
+            threading.Thread(target=self._backfill_database, name='Backfill').start()
+
+
+    def _backfill_database(self):
+        """
+        Backfill the database with older posts.  Useful if script hasn't been run in some time"
+        :return:
+        """
+
+        current_page = 1
+        while current_page < self.backfill_depth:
+            self.insert_latest_images(page=current_page, backfill=True)
+            current_page += 1
+            time.sleep(self.delay_between_requests)
+
+
 
     def _set_ini_options(self, config):
         """
@@ -82,6 +101,12 @@ class ImgurRepostBot():
 
         if 'LogReposts' in config['OPTIONS']:
             self.log_reposts = config['OPTIONS'].getboolean('LogReposts')
+
+        if 'Backfill' in config['OPTIONS']:
+            self.backfill = config['OPTIONS'].getboolean('Backfill')
+
+        if 'BackfillDepth' in config['OPTIONS']:
+            self.backfill_depth = int(config['OPTIONS']['BackfillDepth'])
 
         if 'ExcludeInTitle' in config['OPTIONS']:
             temp = config['OPTIONS']['CommentTemplate'].split(',')
@@ -177,7 +202,7 @@ class ImgurRepostBot():
 
         return items
 
-    def insert_latest_images(self, section='user', sort='time', page=0):
+    def insert_latest_images(self, section='user', sort='time', page=0, backfill=False):
         """
         Pull all current images from user sub, get the hashes and insert into database.
         """
@@ -196,7 +221,12 @@ class ImgurRepostBot():
                 image_hash = self._generate_hash(img)
                 if image_hash:
                     self.processed_images.append(item.id)
-                    self.hashes_to_check.append({"hash": image_hash, "image_id": item.id, "user": item.account_url})
+                    # If this is called from back filling doing add hash to be checked
+                    if not backfill:
+                        self.hashes_to_check.append({"hash": image_hash, "image_id": item.id, "user": item.account_url})
+                        print('Insert {}'.format(item.link))
+                    else:
+                        print('Backfill Insert {}'.format(item.link))
                     self.db_conn.add_entry(item.link, image_hash, item.account_url, item.id)
 
     def downvote_repost(self, image_id):

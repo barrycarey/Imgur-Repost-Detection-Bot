@@ -39,7 +39,6 @@ class ImgurRepostDB():
 
         local_session = self.Session()  # Grab the DB session for this thread
 
-        print('Inserting {}'.format(url))
         local_session.add(self.imgur_reposts(date=datetime.datetime.utcnow(), url=url, hash=hash, user=user, image_id=image_id))
         local_session.flush()
         local_session.commit()
