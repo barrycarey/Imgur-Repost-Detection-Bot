@@ -438,6 +438,7 @@ def main():
         except:
             print('An Exception Occurred During Execution.  Flushing Remaining Hashes')
             rcheck.spawn_hash_check_thread(force_quit=True)
+            rcheck = ImgurRepostBot()
 
 
 

@@ -1,6 +1,6 @@
 from sqlalchemy.ext.automap import automap_base
 from sqlalchemy.exc import OperationalError, InternalError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, scoped_session, sessionmaker
 from sqlalchemy import create_engine, DateTime, text
 import datetime
 import sys
@@ -24,7 +24,9 @@ class ImgurRepostDB():
             sys.exit(1)
 
         self.imgur_reposts = Base.classes.imgur_reposts
-        self.session = Session(engine)
+        #self.session = Session(engine)
+        self.Session = scoped_session(sessionmaker(bind=engine))
+
 
     def add_entry(self, url, hash, user, image_id):
         """
@@ -34,10 +36,13 @@ class ImgurRepostDB():
         :param user: Imgur user that posted the image
         :param image_id: the Imgur ID of the image
         """
+
+        local_session = self.Session()  # Grab the DB session for this thread
+
         print('Inserting {}'.format(url))
-        self.session.add(self.imgur_reposts(date=datetime.datetime.utcnow(), url=url, hash=hash, user=user, image_id=image_id))
-        self.session.flush()
-        self.session.commit()
+        local_session.add(self.imgur_reposts(date=datetime.datetime.utcnow(), url=url, hash=hash, user=user, image_id=image_id))
+        local_session.flush()
+        local_session.commit()
 
     def check_repost(self, hash_to_check, image_id, user):
         """
@@ -45,12 +50,13 @@ class ImgurRepostDB():
         in the database.
         """
         results = []
+        local_session = self.Session()  # Grab the DB session for this thread
 
         if hash_to_check == '0000000000000000':
             return results, 0
 
         # TODO This is pretty dirty.
-        result = self.session.query(self.imgur_reposts).from_statement(text("SELECT id, date, image_id, url, hash, user, BIT_COUNT( CAST(CONV(hash, 16, 10) AS UNSIGNED) ^ CAST(CONV(:testhash, 16, 10) AS UNSIGNED)) AS hamming_distance FROM imgur_reposts HAVING hamming_distance < 2 ORDER BY date ASC")).params(testhash=hash_to_check).all()
+        result = local_session.query(self.imgur_reposts).from_statement(text("SELECT id, date, image_id, url, hash, user, BIT_COUNT( CAST(CONV(hash, 16, 10) AS UNSIGNED) ^ CAST(CONV(:testhash, 16, 10) AS UNSIGNED)) AS hamming_distance FROM imgur_reposts HAVING hamming_distance < 2 ORDER BY date ASC")).params(testhash=hash_to_check).all()
 
         if len(result) > 0:
             for row in result:
@@ -67,10 +73,11 @@ class ImgurRepostDB():
         """
 
         print('Loading Records From The Database.  This May Take Several Minutes.')
+        local_session = self.Session()  # Grab the DB session for this thread
 
         # TODO We can probably limit this to last 24 hours of IDs.
         existing_records = []
-        result = self.session.query(self.imgur_reposts).all()
+        result = local_session.query(self.imgur_reposts).all()
         if len(result) > 0:
             for r in result:
                 existing_records.append(r.image_id)
