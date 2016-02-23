@@ -14,16 +14,18 @@ import os
 import sys
 
 # TODO Common memes with small text get flagged as repost.  Need to increase to 128+ bit hash
+# TODO Remove spawn_hash_check_thread
 
 class ImgurRepostBot():
 
     def __init__(self, detected_reposts = None):
 
-        self.hashes_to_check = []  # Store unchecked hashes for batch processing
+        self.hash_queue = []  # Store unchecked hashes for batch processing
         self.failed_downvotes = []  # Store failed downvotes for later processing
         self.failed_comments = []  # Store failed comments for later processing
         self.last_hash_flush = round(time.time())
         self.delay_between_requests = 5  # Changed on the fly depending on remaining credits and time until reset
+        self.thread_lock = threading.Lock()
 
         if not detected_reposts:
             self.detected_reposts = []
@@ -52,6 +54,8 @@ class ImgurRepostBot():
 
         if self.config.backfill:
             threading.Thread(target=self._backfill_database, name='Backfill').start()
+
+        threading.Thread(target=self._hash_processing_thread, name='Hash Processing').start()
 
 
     def _backfill_database(self):
@@ -133,7 +137,7 @@ class ImgurRepostBot():
                     self.processed_images.append(item.id)
                     # If this is called from back filling doing add hash to be checked
                     if not backfill:
-                        self.hashes_to_check.append({"hash": image_hash, "image_id": item.id, "user": item.account_url})
+                        self.hash_queue.append({"hash": image_hash, "image_id": item.id, "user": item.account_url})
                         print('Insert {}'.format(item.link))
                     else:
                         print('Backfill Insert {}'.format(item.link))
@@ -222,6 +226,45 @@ class ImgurRepostBot():
                 except (ImgurClientError, ImgurClientRateLimitError) as e:
                     print('Failed To Retry Comment On Image {}.  \nError: {}'.format(failed['image_id'], e))
 
+    def _hash_processing_thread(self):
+
+        while True:
+            if len(self.hash_queue) > 0:
+                current_hash = self.hash_queue.pop(0)
+
+                print('Checking Hash ' + current_hash['hash'])
+
+                result, total_detections = self.check_for_repost(current_hash['hash'],
+                                                                 current_hash['image_id'],
+                                                                 current_hash['user'])
+
+                if result:
+
+                    print('Found Reposted Image: https://imgur.com/gallery/{}'.format(current_hash['image_id']))
+
+                    if self.config.leave_downvote:
+                        self.downvote_repost(current_hash['image_id'])
+
+                    # TODO Need to think of a better way to do the comments.  Needs to be more easily user customizable
+                    if self.config.leave_comment:
+                        message_values = []
+                        message_values.append(len(result))
+                        message_values.append(current_hash['hash'])
+                        self.comment_repost(image_id=current_hash['image_id'], values=message_values)
+
+                    matching_images = []
+                    for r in result:
+                        print('Original: https://imgur.com/gallery/{}'.format(r.image_id))
+                        matching_images.append('https://imgur.com/gallery/{}'.format(r.image_id))
+
+                    self.detected_reposts.append({"image_id": current_hash['image_id'], "original_image": matching_images})
+
+                    if self.config.log_reposts:
+                        self.log_repost(repost_url='https://imgur.com/gallery/{}'.format(current_hash['image_id']),
+                                        matching_images=matching_images)
+
+
+
     def flush_stored_hashes(self, hashes_to_check=None):
         """
         Flush all hashes we have stored up.  When we flush we compare each hash against the database to see if it's a
@@ -265,8 +308,8 @@ class ImgurRepostBot():
     def spawn_hash_check_thread(self, force_quit=False):
 
         if round(time.time()) - self.last_hash_flush > self.config.hash_flush_interval or force_quit:
-            hashes = self.hashes_to_check
-            self.hashes_to_check = []
+            hashes = self.hash_queue
+            self.hash_queue = []
             thrd = threading.Thread(target=self.flush_stored_hashes, name='Hash Check Thread',
                                     kwargs={'hashes_to_check': hashes})
             thrd.start()
@@ -334,6 +377,14 @@ class ImgurRepostBot():
 
         return [v for v in self.config.title_check_values if v in title.lower()]
 
+    def print_current_settings(self):
+
+            print('** Current Settings **')
+            print('Leave Comments: {}'.format(self.config.leave_comment))
+            print('Leave Downvote: {} '.format(self.config.leave_downvote))
+            print('Do Backfill: {} '.format(self.config.backfill))
+            print('Flush Hashes Every {} Seconds\n'.format(self.config.hash_flush_interval))
+
     def run(self):
 
         while True:
@@ -341,15 +392,12 @@ class ImgurRepostBot():
             os.system('cls')
 
             print('** Current Stats **')
-            print('Total Pending Hashes To Check: {}'.format(str(len(self.hashes_to_check))))
+            print('Total Pending Hashes To Check: {}'.format(str(len(self.hash_queue))))
             print('Total processed images: {}'.format(str(len(self.processed_images))))
             print('Total Reposts Found: {}'.format(str(len(self.detected_reposts))))
             print('Backfill Progress: {}\n'.format(str(self.backfill_progress)))
 
-            print('** Current Settings **')
-            print('Leave Comments: {}'.format(self.config.leave_comment))
-            print('Leave Downvote: {} '.format(self.config.leave_downvote))
-            print('Flush Hashes Every {} Seconds\n'.format(self.config.hash_flush_interval))
+            self.print_current_settings()
 
             print('** API Settings **')
             print('Remaining Credits: {}'.format(self.imgur_client.credits['ClientRemaining']))
@@ -365,7 +413,7 @@ class ImgurRepostBot():
 
             self.insert_latest_images()
             self.flush_failed_votes_and_comments()
-            self.spawn_hash_check_thread()
+            #self.spawn_hash_check_thread()
 
             time.sleep(self.delay_between_requests)
 

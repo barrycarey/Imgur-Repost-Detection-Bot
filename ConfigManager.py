@@ -55,6 +55,7 @@ class ConfigManager():
         Check if the config has been updated.  If it has reload it.
         """
         while True:
+
             if round(os.path.getmtime(self.config_file)) > self.config_last_modified:
                 print('Config Changes Detected, Reloading .ini File')
                 config = configparser.ConfigParser()
