@@ -1,5 +1,6 @@
 from ImgurRepostDB import ImgurRepostDB
 from imgurpython import ImgurClient
+from ConfigManager import ConfigManager
 from imgurpython.helpers.error import ImgurClientError, ImgurClientRateLimitError
 from Dhash import dhash
 from urllib import request
@@ -16,51 +17,40 @@ import sys
 
 class ImgurRepostBot():
 
-    def __init__(self):
+    def __init__(self, detected_reposts = None):
 
-        self.detected_reposts = []
         self.hashes_to_check = []  # Store unchecked hashes for batch processing
         self.failed_downvotes = []  # Store failed downvotes for later processing
         self.failed_comments = []  # Store failed comments for later processing
         self.last_hash_flush = round(time.time())
-        self.config_file = os.path.join(os.getcwd(), 'bot.ini')
-        self.config_last_modified = round(os.path.getmtime(self.config_file))
         self.delay_between_requests = 5  # Changed on the fly depending on remaining credits and time until reset
 
-
-        # General Options - Can be overridden from ini file
-        self.leave_comment = False
-        self.leave_downvote = False
-        self.log_reposts = False
-        self.backfill = False
-        self.backfill_depth = 500
-        self.hash_flush_interval = 20
-        self.min_time_between_requests = 5
-        self.title_check_values = ['mrw', 'when', 'my reaction']
-        self.comment_template = "We Have Detected Reposted Content.  Reference Hash: {}"
-
-        # Load The Config.  If We Can't Find It Abort
-        if os.path.isfile(self.config_file):
-            config = configparser.ConfigParser()
-            config.read(self.config_file)
-            self._verify_ini(config_file=config)
+        if not detected_reposts:
+            self.detected_reposts = []
         else:
-            print('ERROR: Unable To Load ini File.  Ensure bot.ini is in the CWD')
-            sys.exit(1)
+            self.detected_reposts = detected_reposts
 
-        self.imgur_client = ImgurClient(config['IMGURAPI']['ClientID'], config['IMGURAPI']['ClientSecret'],
-                                        config['IMGURAPI']['AccessToken'], config['IMGURAPI']['RefreshToken'])
+        self.config = ConfigManager()
 
+        self.imgur_client = ImgurClient(self.config.api_details['client_id'],
+                                        self.config.api_details['client_secret'],
+                                        self.config.api_details['access_token'],
+                                        self.config.api_details['refresh_token'])
 
-        self.db_conn = ImgurRepostDB(config['MYSQL']['User'], config['MYSQL']['Password'], config['MYSQL']['Host'],
-                                     config['MYSQL']['Database'])
+        self.db_conn = ImgurRepostDB(self.config.mysql_details['user'],
+                                     self.config.mysql_details['password'],
+                                     self.config.mysql_details['host'],
+                                     self.config.mysql_details['database'])
+
+        if self.config.backfill:
+            self.backfill_progress = 1
+        else:
+            self.backfill_progress = 'Disabled'
 
         # Pull all previous images from DB so we can compare image IDs without hitting DB each time
         self.processed_images = self.db_conn.build_existing_ids()
 
-        self._set_ini_options(config)
-
-        if self.backfill:
+        if self.config.backfill:
             threading.Thread(target=self._backfill_database, name='Backfill').start()
 
 
@@ -71,94 +61,14 @@ class ImgurRepostBot():
         """
 
         current_page = 1
-        while current_page < self.backfill_depth:
+        while current_page < self.config.backfill_depth:
+            self.backfill_progress = current_page
             self.insert_latest_images(page=current_page, backfill=True)
             current_page += 1
             time.sleep(self.delay_between_requests)
 
+        self.backfill_progress = 'Completed'
 
-
-    def _set_ini_options(self, config):
-        """
-        Set the optional values found in the ini
-        """
-
-        # Load Options From Config
-        if 'LeaveComment' in config['OPTIONS']:
-            self.leave_comment = config['OPTIONS'].getboolean('LeaveComment')
-
-        if 'DownVote' in config['OPTIONS']:
-            self.leave_downvote = config['OPTIONS'].getboolean('Downvote')
-
-        if 'FlushInterval' in config['OPTIONS']:
-            self.hash_flush_interval = int(config['OPTIONS']['FlushInterval'])
-
-        if 'CommentTemplate' in config['OPTIONS']:
-            self.comment_template = config['OPTIONS']['CommentTemplate']
-
-        if 'MinTimeBetweenRequests' in config['OPTIONS']:
-            self.min_time_between_requests = int(config['OPTIONS']['MinTimeBetweenRequests'])
-
-        if 'LogReposts' in config['OPTIONS']:
-            self.log_reposts = config['OPTIONS'].getboolean('LogReposts')
-
-        if 'Backfill' in config['OPTIONS']:
-            self.backfill = config['OPTIONS'].getboolean('Backfill')
-
-        if 'BackfillDepth' in config['OPTIONS']:
-            self.backfill_depth = int(config['OPTIONS']['BackfillDepth'])
-
-        if 'ExcludeInTitle' in config['OPTIONS']:
-            temp = config['OPTIONS']['CommentTemplate'].split(',')
-
-            # Cleanup Any Spaces Added To Start Or End Of Values.  God help us if they add more than 1
-            for val in temp:
-                if val[0] == ' ':
-                    val = val[1:]
-                if val[-1] == ' ':
-                    val = val[0:len(val) - 1]
-
-                self.title_check_values.append(val.lower())
-
-
-    def _verify_ini(self, config_file=None):
-        """
-        Make sure all required fields are in the config file.  If they are not, abort the script
-        """
-
-        imgur_values = ['ClientID', 'ClientSecret', 'AccessToken', 'RefreshToken']
-        mysql_values = ['Host', 'User', 'Password', 'Database']
-        missing_values = []
-
-        if not config_file:
-            print("No Config Filed Supplied.  Aborting")
-            sys.exit(1)
-
-        for val in imgur_values:
-            if val not in config_file['IMGURAPI']:
-                missing_values.append('IMGURAPI: ' + val)
-
-        for val in mysql_values:
-            if val not in config_file['MYSQL']:
-                missing_values.append('MYSQL: ' + val)
-
-        if missing_values:
-            print('ERROR: ini file is missing required values. \n Missing Values:')
-            for val in missing_values:
-                print(val)
-            sys.exit(1)
-
-    def reload_ini(self):
-        """
-        Check if the config has been updated.  If it has reload it.
-        """
-
-        if round(os.path.getmtime(self.config_file)) > self.config_last_modified:
-            print('Config Changes Detected, Reloading .ini File')
-            config = configparser.ConfigParser()
-            config.read(self.config_file)
-            self._set_ini_options(config)
-            self.config_last_modified = round(os.path.getmtime(self.config_file))
 
     def _generate_hash(self, img, hash_size=8):
         """
@@ -275,20 +185,20 @@ class ImgurRepostBot():
             total_values = 0
 
         format_count = 0
-        for i in self.comment_template:
+        for i in self.config.comment_template:
             if i == '{':
                 format_count += 1
 
         # If there are no format options return the raw template
         if format_count == 0:
-            return self.comment_template
+            return self.config.comment_template
 
         if not format_count == total_values:
             print('Provided Values Do Not Match Format Places In Comment Template')
             print('Format Spots: {} \nProvided Values: {}'.format(format_count, total_values))
-            return self.comment_template
+            return self.config.comment_template
 
-        return self.comment_template.format(*values)
+        return self.config.comment_template.format(*values)
 
     def flush_failed_votes_and_comments(self):
         """
@@ -331,11 +241,11 @@ class ImgurRepostBot():
 
                 print('Found Reposted Image: https://imgur.com/gallery/{}'.format(current_hash['image_id']))
 
-                if self.leave_downvote:
+                if self.config.leave_downvote:
                     self.downvote_repost(current_hash['image_id'])
 
                 # TODO Need to think of a better way to do the comments.  Needs to be more easily user customizable
-                if self.leave_comment:
+                if self.config.leave_comment:
                     message_values = []
                     message_values.append(len(result))
                     message_values.append(current_hash['hash'])
@@ -348,13 +258,13 @@ class ImgurRepostBot():
 
                 self.detected_reposts.append({"image_id": current_hash['image_id'], "original_image": matching_images})
 
-                if self.log_reposts:
+                if self.config.log_reposts:
                     self.log_repost(repost_url='https://imgur.com/gallery/{}'.format(current_hash['image_id']),
                                     matching_images=matching_images)
 
     def spawn_hash_check_thread(self, force_quit=False):
 
-        if round(time.time()) - self.last_hash_flush > self.hash_flush_interval or force_quit:
+        if round(time.time()) - self.last_hash_flush > self.config.hash_flush_interval or force_quit:
             hashes = self.hashes_to_check
             self.hashes_to_check = []
             thrd = threading.Thread(target=self.flush_stored_hashes, name='Hash Check Thread',
@@ -395,9 +305,11 @@ class ImgurRepostBot():
         # Imgur API sometimes returns 12500 credits remaining in error.  If this happens don't update request delay.
         # Otherwise the delay will drop to the minimum set in the config and can cause premature credit exhaustion
         if int(self.imgur_client.credits['ClientRemaining']) - remaining_credits_before > 100:
+            """
             print('Imgur API Returned Wrong Remaining Credits.  Keeping Last Request Delay Time')
             print('API Credits: ' + str(self.imgur_client.credits['ClientRemaining']))
             print('Last Credits: ' + str(remaining_credits_before))
+            """
             return
 
         remaining_credits = self.imgur_client.credits['ClientRemaining']
@@ -405,8 +317,8 @@ class ImgurRepostBot():
         remaining_seconds = reset_time - round(time.time())
         seconds_per_credit = round(remaining_seconds / remaining_credits)  # TODO Getting division by zero sometimes
 
-        if seconds_per_credit < self.min_time_between_requests:
-            self.delay_between_requests = self.min_time_between_requests
+        if seconds_per_credit < self.config.min_time_between_requests:
+            self.delay_between_requests = self.config.min_time_between_requests
         else:
             self.delay_between_requests = seconds_per_credit
 
@@ -420,7 +332,7 @@ class ImgurRepostBot():
         if not title:
             return None
 
-        return [v for v in self.title_check_values if v in title.lower()]
+        return [v for v in self.config.title_check_values if v in title.lower()]
 
     def run(self):
 
@@ -431,12 +343,13 @@ class ImgurRepostBot():
             print('** Current Stats **')
             print('Total Pending Hashes To Check: {}'.format(str(len(self.hashes_to_check))))
             print('Total processed images: {}'.format(str(len(self.processed_images))))
-            print('Total Reposts Found: {}\n'.format(str(len(self.detected_reposts))))
+            print('Total Reposts Found: {}'.format(str(len(self.detected_reposts))))
+            print('Backfill Progress: {}\n'.format(str(self.backfill_progress)))
 
             print('** Current Settings **')
-            print('Leave Comments: {}'.format(self.leave_comment))
-            print('Leave Downvote: {} '.format(self.leave_downvote))
-            print('Flush Hashes Every {} Seconds\n'.format(self.hash_flush_interval))
+            print('Leave Comments: {}'.format(self.config.leave_comment))
+            print('Leave Downvote: {} '.format(self.config.leave_downvote))
+            print('Flush Hashes Every {} Seconds\n'.format(self.config.hash_flush_interval))
 
             print('** API Settings **')
             print('Remaining Credits: {}'.format(self.imgur_client.credits['ClientRemaining']))
@@ -444,7 +357,7 @@ class ImgurRepostBot():
                 print('Minutes Until Credit Reset: {}'.format(round((int(self.imgur_client.credits['UserReset']) - time.time()) / 60)))
 
             # Make it clear we are overriding the default delay to meet credit refill window
-            if self.delay_between_requests == self.min_time_between_requests:
+            if self.delay_between_requests == self.config.min_time_between_requests:
                 request_delay = self.delay_between_requests
             else:
                 request_delay = str(self.delay_between_requests) + ' (Overridden By Rate Limit)'
@@ -453,7 +366,6 @@ class ImgurRepostBot():
             self.insert_latest_images()
             self.flush_failed_votes_and_comments()
             self.spawn_hash_check_thread()
-            self.reload_ini()
 
             time.sleep(self.delay_between_requests)
 
@@ -462,13 +374,15 @@ def main():
     rcheck = ImgurRepostBot()
 
     # TODO This is sloppy.  Quick way to keep it running when I'm not watching it
+
     while True:
         try:
             rcheck.run()
-        except:
+        except Exception as ex:
             print('An Exception Occurred During Execution.  Flushing Remaining Hashes')
+            print('Exception Type {}'.format(type(ex)))
             rcheck.spawn_hash_check_thread(force_quit=True)
-            rcheck = ImgurRepostBot()
+            rcheck = ImgurRepostBot(detected_reposts=rcheck.detected_reposts)
 
 
 
