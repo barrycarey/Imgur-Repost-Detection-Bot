@@ -93,7 +93,7 @@ class ImgurRepostBot():
         try:
             response = request.urlopen(url)
             img = Image.open(BytesIO(response.read()))
-        except (HTTPError, OSError) as e:
+        except (HTTPError, ConnectionError, OSError) as e:
             print('Error Generating Image File: \n Error Message: {}'.format(e))
             return None
 
@@ -231,8 +231,6 @@ class ImgurRepostBot():
         while True:
             if len(self.hash_queue) > 0:
                 current_hash = self.hash_queue.pop(0)
-
-                print('Checking Hash ' + current_hash['hash'])
 
                 result, total_detections = self.check_for_repost(current_hash['hash'],
                                                                  current_hash['image_id'],
@@ -379,6 +377,7 @@ class ImgurRepostBot():
 
     def print_current_settings(self):
 
+
             print('** Current Settings **')
             print('Leave Comments: {}'.format(self.config.leave_comment))
             print('Leave Downvote: {} '.format(self.config.leave_downvote))
@@ -386,6 +385,8 @@ class ImgurRepostBot():
             print('Flush Hashes Every {} Seconds\n'.format(self.config.hash_flush_interval))
 
     def run(self):
+
+        last_run = round(time.time())
 
         while True:
 
@@ -411,11 +412,13 @@ class ImgurRepostBot():
                 request_delay = str(self.delay_between_requests) + ' (Overridden By Rate Limit)'
             print('Delay Between Requests: {}\n'.format(request_delay))
 
-            self.insert_latest_images()
-            self.flush_failed_votes_and_comments()
-            #self.spawn_hash_check_thread()
+            if round(time.time()) - last_run > self.delay_between_requests:
+                self.insert_latest_images()
+                self.flush_failed_votes_and_comments()
+                last_run = round(time.time())
 
-            time.sleep(self.delay_between_requests)
+            time.sleep(.5)
+
 
 
 def main():
@@ -424,13 +427,15 @@ def main():
     # TODO This is sloppy.  Quick way to keep it running when I'm not watching it
 
     while True:
+        detected_reposts = rcheck.detected_reposts
         try:
             rcheck.run()
         except Exception as ex:
             print('An Exception Occurred During Execution.  Flushing Remaining Hashes')
             print('Exception Type {}'.format(type(ex)))
-            rcheck.spawn_hash_check_thread(force_quit=True)
-            rcheck = ImgurRepostBot(detected_reposts=rcheck.detected_reposts)
+
+            #rcheck.spawn_hash_check_thread(force_quit=True)
+            rcheck = ImgurRepostBot(detected_reposts=detected_reposts)
 
 
 
