@@ -9,16 +9,15 @@ from PIL import Image
 from io import BytesIO
 import threading
 import time
-import configparser
 import os
-import sys
+
 
 # TODO Common memes with small text get flagged as repost.  Need to increase to 128+ bit hash
 # TODO Remove spawn_hash_check_thread
 
 class ImgurRepostBot():
 
-    def __init__(self, detected_reposts = None):
+    def __init__(self, detected_reposts=None):
 
         self.hash_queue = []  # Store unchecked hashes for batch processing
         self.failed_downvotes = []  # Store failed downvotes for later processing
@@ -65,7 +64,7 @@ class ImgurRepostBot():
         """
 
         current_page = 1
-        while current_page < self.config.backfill_depth:
+        while current_page < self.config.backfill_depth + self.config.backfill_start_page:
             self.backfill_progress = current_page
             self.insert_latest_images(page=current_page, backfill=True)
             current_page += 1
@@ -99,8 +98,8 @@ class ImgurRepostBot():
 
         return img if img else None
 
-    def check_for_repost(self, hash_to_check, image_id, user):
-        return self.db_conn.check_repost(hash_to_check, image_id, user)
+    def check_for_repost(self, hash_to_check, image_id=None, user=None):
+        return self.db_conn.check_repost(hash_to_check, user=user, image_id=image_id)
 
     def generate_latest_images(self, section='user', sort='time', page=0):
 
@@ -141,7 +140,7 @@ class ImgurRepostBot():
                         print('Insert {}'.format(item.link))
                     else:
                         print('Backfill Insert {}'.format(item.link))
-                    self.db_conn.add_entry(item.link, image_hash, item.account_url, item.id)
+                    self.db_conn.add_entry(item.link, image_hash, item.account_url, item.id, item.datetime)
 
     def downvote_repost(self, image_id):
         """
@@ -233,8 +232,8 @@ class ImgurRepostBot():
                 current_hash = self.hash_queue.pop(0)
 
                 result, total_detections = self.check_for_repost(current_hash['hash'],
-                                                                 current_hash['image_id'],
-                                                                 current_hash['user'])
+                                                                 image_id=current_hash['image_id'],
+                                                                 user=current_hash['user'])
 
                 if result:
 
@@ -261,57 +260,6 @@ class ImgurRepostBot():
                         self.log_repost(repost_url='https://imgur.com/gallery/{}'.format(current_hash['image_id']),
                                         matching_images=matching_images)
 
-
-
-    def flush_stored_hashes(self, hashes_to_check=None):
-        """
-        Flush all hashes we have stored up.  When we flush we compare each hash against the database to see if it's a
-        repost.
-
-        :param force_quit: When true we ignore the flush interval and do the flush regardless.
-        """
-
-        print('Running Hash Checks')
-        self.last_hash_flush = round(time.time())
-        for current_hash in hashes_to_check:
-
-            #print('Checking Hash {}'.format(current_hash['hash']))
-            result, total_detections = self.check_for_repost(current_hash['hash'], current_hash['image_id'], current_hash['user'])
-
-            if result:
-
-                print('Found Reposted Image: https://imgur.com/gallery/{}'.format(current_hash['image_id']))
-
-                if self.config.leave_downvote:
-                    self.downvote_repost(current_hash['image_id'])
-
-                # TODO Need to think of a better way to do the comments.  Needs to be more easily user customizable
-                if self.config.leave_comment:
-                    message_values = []
-                    message_values.append(len(result))
-                    message_values.append(current_hash['hash'])
-                    self.comment_repost(image_id=current_hash['image_id'], values=message_values)
-
-                matching_images = []
-                for r in result:
-                    print('Original: https://imgur.com/gallery/{}'.format(r.image_id))
-                    matching_images.append('https://imgur.com/gallery/{}'.format(r.image_id))
-
-                self.detected_reposts.append({"image_id": current_hash['image_id'], "original_image": matching_images})
-
-                if self.config.log_reposts:
-                    self.log_repost(repost_url='https://imgur.com/gallery/{}'.format(current_hash['image_id']),
-                                    matching_images=matching_images)
-
-    def spawn_hash_check_thread(self, force_quit=False):
-
-        if round(time.time()) - self.last_hash_flush > self.config.hash_flush_interval or force_quit:
-            hashes = self.hash_queue
-            self.hash_queue = []
-            thrd = threading.Thread(target=self.flush_stored_hashes, name='Hash Check Thread',
-                                    kwargs={'hashes_to_check': hashes})
-            thrd.start()
-
     def log_repost(self, repost_url=None, matching_images=None):
         """
         Log the reposted image out to a file.  Also include all matching images we found
@@ -328,7 +276,6 @@ class ImgurRepostBot():
         else:
             print('LOG ERROR: Missing Original URL or Matching Images')
             return
-
 
     def _adjust_rate_limit_timing(self):
         """
@@ -375,6 +322,21 @@ class ImgurRepostBot():
 
         return [v for v in self.config.title_check_values if v in title.lower()]
 
+    def verify_image_still_exists(self, image_id=None):
+        """
+        Check a given image ID and make sure it still exists.  To be used when purging database of images
+        users have deleted
+        :param image_id:
+        :return: Bool
+        """
+
+        try:
+            img = self.imgur_client.get_image(image_id)
+        except ImgurClientError as e:
+            return None
+
+        return True
+
     def print_current_settings(self):
 
 
@@ -417,27 +379,19 @@ class ImgurRepostBot():
                 self.flush_failed_votes_and_comments()
                 last_run = round(time.time())
 
-            time.sleep(.5)
-
+            time.sleep(2)
 
 
 def main():
-    rcheck = ImgurRepostBot()
 
     # TODO This is sloppy.  Quick way to keep it running when I'm not watching it
-
     while True:
-        detected_reposts = rcheck.detected_reposts
         try:
+            rcheck = ImgurRepostBot()
             rcheck.run()
         except Exception as ex:
             print('An Exception Occurred During Execution.  Flushing Remaining Hashes')
             print('Exception Type {}'.format(type(ex)))
-
-            #rcheck.spawn_hash_check_thread(force_quit=True)
-            rcheck = ImgurRepostBot(detected_reposts=detected_reposts)
-
-
 
 if __name__ == '__main__':              # if we're running file directly and not importing it
     main()

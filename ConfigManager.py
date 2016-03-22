@@ -25,6 +25,7 @@ class ConfigManager():
         # Backfill settings.  Can be overridden via config
         self.backfill = False
         self.backfill_depth = 500
+        self.backfill_start_page = 1
 
 
         # Load The Config.  If We Can't Find It Abort
@@ -94,6 +95,9 @@ class ConfigManager():
 
         if 'BackfillDepth' in config['OPTIONS']:
             self.backfill_depth = int(config['OPTIONS']['BackfillDepth'])
+
+        if 'BackfillStartPage' in config['OPTIONS']:
+            self.backfill_start_page = int(config['OPTIONS']['BackfillStartPage'])
 
         if 'ExcludeInTitle' in config['OPTIONS']:
             temp = config['OPTIONS']['CommentTemplate'].split(',')

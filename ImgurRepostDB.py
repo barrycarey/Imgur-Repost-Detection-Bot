@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session, scoped_session, sessionmaker
 from sqlalchemy import create_engine, DateTime, text
 import datetime
 import sys
+import time
 
 class ImgurRepostDB():
     """
@@ -28,7 +29,7 @@ class ImgurRepostDB():
         self.Session = scoped_session(sessionmaker(bind=engine))
 
 
-    def add_entry(self, url, hash, user, image_id):
+    def add_entry(self, url, hash, user, image_id, submission_time):
         """
         Insert the provided data into the database
         :param url: image URL
@@ -39,11 +40,24 @@ class ImgurRepostDB():
 
         local_session = self.Session()  # Grab the DB session for this thread
 
-        local_session.add(self.imgur_reposts(date=datetime.datetime.utcnow(), url=url, hash=hash, user=user, image_id=image_id))
+        local_session.add(self.imgur_reposts(date=datetime.datetime.utcnow(), url=url, hash=hash, user=user,
+                                             image_id=image_id, submitted_to_imgur=submission_time))
         local_session.flush()
         local_session.commit()
 
-    def check_repost(self, hash_to_check, image_id, user):
+    def update_entry(self, image_id, sub_time):
+        """
+        Temp method to update values in a new column
+        :param image_id:
+        :return:
+        """
+        print('Setting Image {} To Date Of {}'.format(image_id, sub_time))
+        local_session = self.Session()
+        local_session.query(self.imgur_reposts).filter_by(image_id=image_id).update({"submitted_to_imgur": sub_time})
+        local_session.commit()
+        local_session.close()
+
+    def check_repost(self, hash_to_check, user=None, image_id=None):
         """
         Check if the provided image is a repost by calculating the hamming distance between provided hash and all hashes
         in the database.
@@ -77,6 +91,20 @@ class ImgurRepostDB():
         # TODO We can probably limit this to last 24 hours of IDs.
         existing_records = []
         result = local_session.query(self.imgur_reposts).all()
+        if len(result) > 0:
+            for r in result:
+                existing_records.append(r.image_id)
+
+        print('Loaded {} Records From Database'.format(len(existing_records)))
+        return existing_records
+
+    def dump_all_records(self):
+
+        print('Loading Records From The Database.  This May Take Several Minutes.')
+        local_session = self.Session()  # Grab the DB session for this thread
+
+        existing_records = []
+        result = local_session.query(self.imgur_reposts).from_statement(text("SELECT * from imgur_reposts WHERE submitted_to_imgur IS NULL or submitted_to_imgur=''")).all()
         if len(result) > 0:
             for r in result:
                 existing_records.append(r.image_id)
