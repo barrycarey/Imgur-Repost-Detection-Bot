@@ -385,6 +385,7 @@ class ImgurRepostBot():
 def main():
 
     # TODO This is sloppy.  Quick way to keep it running when I'm not watching it
+
     while True:
         try:
             rcheck = ImgurRepostBot()
