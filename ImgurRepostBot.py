@@ -25,6 +25,7 @@ class ImgurRepostBot():
         self.last_hash_flush = round(time.time())
         self.delay_between_requests = 5  # Changed on the fly depending on remaining credits and time until reset
         self.thread_lock = threading.Lock()
+        self.processed_images = []
 
         if not detected_reposts:
             self.detected_reposts = []
@@ -48,14 +49,26 @@ class ImgurRepostBot():
         else:
             self.backfill_progress = 'Disabled'
 
-        # Pull all previous images from DB so we can compare image IDs without hitting DB each time
-        self.processed_images = self.db_conn.build_existing_ids()
+        threading.Thread(target=self._load_existing_records, name='RecordLoader').start()
 
         if self.config.backfill:
             threading.Thread(target=self._backfill_database, name='Backfill').start()
 
         threading.Thread(target=self._hash_processing_thread, name='Hash Processing').start()
 
+    def _load_existing_records(self):
+        """
+        Spawns a thread to load all records from the database.  This allows us to start getting new images without
+        waiting on the DB to return records
+        :return: None
+        """
+        results = self.db_conn.build_existing_ids()
+        try:
+            self.thread_lock.acquire()
+            for r in results:
+                self.processed_images.append(r)
+        finally:
+            self.thread_lock.release()
 
     def _backfill_database(self):
         """
@@ -63,21 +76,28 @@ class ImgurRepostBot():
         :return:
         """
 
-        current_page = 1
+        current_page = self.config.backfill_start_page
         while current_page < self.config.backfill_depth + self.config.backfill_start_page:
+
+            if not self.db_conn.records_loaded:
+                continue
+
             self.backfill_progress = current_page
             self.insert_latest_images(page=current_page, backfill=True)
             current_page += 1
-            time.sleep(self.delay_between_requests)
+            time.sleep(2)
 
         self.backfill_progress = 'Completed'
-
 
     def _generate_hash(self, img, hash_size=8):
         """
         Generate the dhash of the provided image.
         """
-        return dhash(img, hash_size=hash_size)
+        results = {}
+        results['hash16'] = dhash(img, hash_size=8)
+        results['hash64'] = dhash(img, hash_size=16)
+        results['hash256'] = dhash(img, hash_size=32)
+        return results
 
 
     def _generate_img(self, url=None):
@@ -119,6 +139,11 @@ class ImgurRepostBot():
         """
         Pull all current images from user sub, get the hashes and insert into database.
         """
+
+        # Don't start inserts until all records are loaded
+        if not self.db_conn.records_loaded:
+            return
+
         items = self.generate_latest_images(section=section, sort=sort, page=page)
 
         if not items:
@@ -140,6 +165,7 @@ class ImgurRepostBot():
                         print('Insert {}'.format(item.link))
                     else:
                         print('Backfill Insert {}'.format(item.link))
+
                     self.db_conn.add_entry(item.link, image_hash, item.account_url, item.id, item.datetime)
 
     def downvote_repost(self, image_id):
@@ -228,10 +254,11 @@ class ImgurRepostBot():
     def _hash_processing_thread(self):
 
         while True:
-            if len(self.hash_queue) > 0:
+            if len(self.hash_queue) > 0 and self.db_conn.records_loaded:
+                print('Inside Hash Check If Block')
                 current_hash = self.hash_queue.pop(0)
 
-                result, total_detections = self.check_for_repost(current_hash['hash'],
+                result, total_detections = self.check_for_repost(current_hash['hash']['hash16'],
                                                                  image_id=current_hash['image_id'],
                                                                  user=current_hash['user'])
 
@@ -259,6 +286,8 @@ class ImgurRepostBot():
                     if self.config.log_reposts:
                         self.log_repost(repost_url='https://imgur.com/gallery/{}'.format(current_hash['image_id']),
                                         matching_images=matching_images)
+
+
 
     def log_repost(self, repost_url=None, matching_images=None):
         """
@@ -358,7 +387,11 @@ class ImgurRepostBot():
             print('Total Pending Hashes To Check: {}'.format(str(len(self.hash_queue))))
             print('Total processed images: {}'.format(str(len(self.processed_images))))
             print('Total Reposts Found: {}'.format(str(len(self.detected_reposts))))
-            print('Backfill Progress: {}\n'.format(str(self.backfill_progress)))
+            print('Backfill Progress: {}'.format(str(self.backfill_progress)))
+            if self.db_conn.records_loaded:
+                print('Database Records Loaded: True\n')
+            else:
+                print('Database Records Loaded: False\n')
 
             self.print_current_settings()
 
@@ -374,6 +407,12 @@ class ImgurRepostBot():
                 request_delay = str(self.delay_between_requests) + ' (Overridden By Rate Limit)'
             print('Delay Between Requests: {}\n'.format(request_delay))
 
+            print('Running Threads: ')
+            for thrd in threading.enumerate():
+                if thrd.name.lower() == 'mainthread':
+                    continue
+                print('[+] ', thrd.name)
+
             if round(time.time()) - last_run > self.delay_between_requests:
                 self.insert_latest_images()
                 self.flush_failed_votes_and_comments()
@@ -385,6 +424,8 @@ class ImgurRepostBot():
 def main():
 
     # TODO This is sloppy.  Quick way to keep it running when I'm not watching it
+
+
     while True:
         try:
             rcheck = ImgurRepostBot()

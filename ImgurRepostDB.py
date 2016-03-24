@@ -14,6 +14,8 @@ class ImgurRepostDB():
 
     def __init__(self, db_user, db_pass, db_host, db_name):
 
+        self.records_loaded = False
+
         Base = automap_base()
 
         engine = create_engine('mysql+pymysql://{}:{}@{}/{}'.format(db_user, db_pass, db_host, db_name))
@@ -29,7 +31,7 @@ class ImgurRepostDB():
         self.Session = scoped_session(sessionmaker(bind=engine))
 
 
-    def add_entry(self, url, hash, user, image_id, submission_time):
+    def add_entry(self, url, hashes, user, image_id, submission_time):
         """
         Insert the provided data into the database
         :param url: image URL
@@ -37,11 +39,21 @@ class ImgurRepostDB():
         :param user: Imgur user that posted the image
         :param image_id: the Imgur ID of the image
         """
+        hash16, hash64, hash256 = 'NULL', 'NULL', 'NULL'
+
+        if hashes['hash16'] != 'NULL':
+            hash16 = hashes['hash16']
+
+        if hashes['hash64'] != 'NULL':
+            hash64 = hashes['hash64']
+
+        if hashes['hash256'] != 'NULL':
+            hash256 = hashes['hash256']
 
         local_session = self.Session()  # Grab the DB session for this thread
 
-        local_session.add(self.imgur_reposts(date=datetime.datetime.utcnow(), url=url, hash=hash, user=user,
-                                             image_id=image_id, submitted_to_imgur=submission_time))
+        local_session.add(self.imgur_reposts(date=datetime.datetime.utcnow(), url=url, hash=hash16, hash64=hash64,
+                                             hash256=hash256, user=user, image_id=image_id, submitted_to_imgur=submission_time))
         local_session.flush()
         local_session.commit()
 
@@ -90,12 +102,13 @@ class ImgurRepostDB():
 
         # TODO We can probably limit this to last 24 hours of IDs.
         existing_records = []
-        result = local_session.query(self.imgur_reposts).all()
+        result = local_session.query(self.imgur_reposts).from_statement(text("SELECT * from imgur_reposts LIMIT 100")).all()
         if len(result) > 0:
             for r in result:
                 existing_records.append(r.image_id)
 
         print('Loaded {} Records From Database'.format(len(existing_records)))
+        self.records_loaded = True
         return existing_records
 
     def dump_all_records(self):
@@ -110,4 +123,5 @@ class ImgurRepostDB():
                 existing_records.append(r.image_id)
 
         print('Loaded {} Records From Database'.format(len(existing_records)))
+        self.records_loaded = True
         return existing_records
