@@ -10,7 +10,7 @@ class ConfigManager():
 
     def __init__(self):
 
-        self.config_file = os.path.join(os.getcwd(), 'bot.ini')
+        self.config_file = os.path.join(os.getcwd(), 'testing.ini')
         self.config_last_modified = round(os.path.getmtime(self.config_file))
 
         # General Options - Can be overridden from ini file
@@ -22,6 +22,8 @@ class ConfigManager():
         self.title_check_values = ['mrw', 'when', 'my reaction']
         self.comment_template = "We Have Detected Reposted Content.  Reference Hash: {}"
         self.logging = False
+        self.hash_size = 16
+        self.hamming_cutoff = 3
 
         # Backfill settings.  Can be overridden via config
         self.backfill = False
@@ -50,7 +52,7 @@ class ConfigManager():
                               'host': config['MYSQL']['Host'],
                               'database': config['MYSQL']['Database']}
 
-        threading.Thread(target=self.reload_ini, name='Config Monitor').start()
+        threading.Thread(target=self.reload_ini, name='ConfigMonitor').start()
 
     def reload_ini(self):
         """
@@ -84,6 +86,12 @@ class ConfigManager():
 
         if 'CommentTemplate' in config['OPTIONS']:
             self.comment_template = config['OPTIONS']['CommentTemplate']
+
+        if 'HashSize' in config['OPTIONS']:
+            self.hash_size = config['OPTIONS']['HashSize']
+
+        if 'HammingCutoff' in config['OPTIONS']:
+            self.hamming_cutoff = int(config['OPTIONS']['HammingCutoff'])
 
         if 'MinTimeBetweenRequests' in config['OPTIONS']:
             self.min_time_between_requests = int(config['OPTIONS']['MinTimeBetweenRequests'])

@@ -69,6 +69,7 @@ class ImgurRepostDB():
         local_session.commit()
         local_session.close()
 
+    # TODO Cleanly remove this.  Hash Checks no longer done on mysql side
     def check_repost(self, hash_to_check, user=None, image_id=None):
         """
         Check if the provided image is a repost by calculating the hamming distance between provided hash and all hashes
@@ -102,7 +103,41 @@ class ImgurRepostDB():
 
         # TODO We can probably limit this to last 24 hours of IDs.
         existing_records = []
-        result = local_session.query(self.imgur_reposts).all()
+        #result = local_session.query(self.imgur_reposts).all()
+        result = local_session.query(self.imgur_reposts).from_statement(text("SELECT * from imgur_reposts")).all()
+        print(result)
+        image_ids = []
+        if len(result) > 0:
+            for r in result:
+                image_ids.append(r.image_id)
+                record = {
+                    'image_id': r.image_id,
+                    'url': r.url,
+                    'user': r.user,
+                    'submitted': r.submitted_to_imgur,
+                    'hash16': r.hash,
+                    'hash64': r.hash64,
+                    'hash256': r.hash256
+                }
+                existing_records.append(record)
+
+        print('Loaded {} Records From Database'.format(len(existing_records)))
+        self.records_loaded = True
+        return existing_records, image_ids
+
+    def build_existing_ids_bak(self):
+        """
+        Build a list of all existing Image IDs in the database.  The prevents us from reinserting an image we have already
+        checked.
+        """
+
+        print('Loading Records From The Database.  This May Take Several Minutes.')
+        local_session = self.Session()  # Grab the DB session for this thread
+
+        # TODO We can probably limit this to last 24 hours of IDs.
+        existing_records = []
+        #result = local_session.query(self.imgur_reposts).all()
+        result = local_session.query(self.imgur_reposts).from_statement(text("SELECT * from imgur_reposts LIMIT 200")).all()
         if len(result) > 0:
             for r in result:
                 existing_records.append(r.image_id)

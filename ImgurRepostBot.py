@@ -11,6 +11,7 @@ import threading
 import time
 import os
 import logging
+from distance import hamming
 
 # TODO Common memes with small text get flagged as repost.  Need to increase to 128+ bit hash
 # TODO Remove spawn_hash_check_thread
@@ -25,7 +26,8 @@ class ImgurRepostBot():
         self.last_hash_flush = round(time.time())
         self.delay_between_requests = 5  # Changed on the fly depending on remaining credits and time until reset
         self.thread_lock = threading.Lock()
-        self.processed_images = []
+        self.processed_ids = []
+        self.records = []
         self.logger = None
 
         if not detected_reposts:
@@ -56,7 +58,37 @@ class ImgurRepostBot():
         if self.config.backfill:
             threading.Thread(target=self._backfill_database, name='Backfill').start()
 
-        threading.Thread(target=self._hash_processing_thread, name='Hash Processing').start()
+        threading.Thread(target=self._hash_processing_thread, name='HashProcessing').start()
+
+
+    def _check_thread_status(self):
+
+        thread_names = ['configmonitor', 'backfill', 'hashprocessing']
+
+        for thrd in threading.enumerate():
+            if thrd.name.lower() in thread_names:
+                thread_names.remove(thrd.name.lower())
+
+        for i in thread_names:
+
+            if i == 'configmonitor':
+                msg = 'Config Monitor Thread Crashed'
+                self._output_error(msg)
+                self.config = ConfigManager()
+                continue
+
+            if i == 'backfill' and self.config.backfill:
+                msg = 'Backfill Thread Crashed'
+                self._output_error(msg)
+                threading.Thread(target=self._backfill_database, name='Backfill').start()
+                continue
+
+            if i == 'hashprocessing':
+                msg = 'Hash Processing Thread Crashed'
+                self._output_error(msg)
+                threading.Thread(target=self._hash_processing_thread, name='HashProcessing').start()
+                continue
+
 
     def _setup_logging(self):
 
@@ -75,11 +107,11 @@ class ImgurRepostBot():
         waiting on the DB to return records
         :return: None
         """
-        results = self.db_conn.build_existing_ids()
+        records, image_ids = self.db_conn.build_existing_ids()
         try:
             self.thread_lock.acquire()
-            for r in results:
-                self.processed_images.append(r)
+            self.processed_ids = image_ids
+            self.records = records
         finally:
             self.thread_lock.release()
 
@@ -145,7 +177,23 @@ class ImgurRepostBot():
         return img if img else None
 
     def check_for_repost(self, hash_to_check, image_id=None, user=None):
-        return self.db_conn.check_repost(hash_to_check, user=user, image_id=image_id)
+
+        results = []
+
+        hash_size = 'hash' + self.config.hash_size
+        for r in self.records:
+
+            if image_id == r['image_id'] or r['user'] == user:
+                continue
+
+            hamming_distance = hamming(hash_to_check[hash_size], r[hash_size])
+
+            if hamming_distance < self.config.hamming_cutoff:
+                print('Detected repost')
+                results.append(r)
+
+
+        return results
 
     def generate_latest_images(self, section='user', sort='time', page=0):
 
@@ -178,15 +226,28 @@ class ImgurRepostBot():
 
         # Don't add again if we have already done this image ID
         for item in items:
-            if item.id in self.processed_images:
+            if item.id in self.processed_ids:
                 continue
 
             img = self._generate_img(url=item.link)
             if img:
                 image_hash = self._generate_hash(img)
                 if image_hash:
-                    self.processed_images.append(item.id)
-                    # If this is called from back filling doing add hash to be checked
+
+                    record = {
+                        'image_id': item.id,
+                        'url': item.link,
+                        'user': item.account_url,
+                        'submitted': item.datetime,
+                        'hash16': image_hash['hash16'],
+                        'hash64': image_hash['hash64'],
+                        'hash256': image_hash['hash256']
+                    }
+
+                    self.processed_ids.append(item.id)
+                    self.records.append(record)
+
+                    # If this is called from back filling don't add hash to be checked
                     if not backfill:
                         self.hash_queue.append({"hash": image_hash, "image_id": item.id, "user": item.account_url})
                         print('Insert {}'.format(item.link))
@@ -290,7 +351,7 @@ class ImgurRepostBot():
 
                 current_hash = self.hash_queue.pop(0)
 
-                result, total_detections = self.check_for_repost(current_hash['hash']['hash16'],
+                result = self.check_for_repost(current_hash['hash'],
                                                                  image_id=current_hash['image_id'],
                                                                  user=current_hash['user'])
 
@@ -311,8 +372,8 @@ class ImgurRepostBot():
 
                     matching_images = []
                     for r in result:
-                        print('Original: https://imgur.com/gallery/{}'.format(r.image_id))
-                        matching_images.append('https://imgur.com/gallery/{}'.format(r.image_id))
+                        print('Original: https://imgur.com/gallery/{}'.format(r['image_id']))
+                        matching_images.append('https://imgur.com/gallery/{}'.format(r['image_id']))
 
                     self.detected_reposts.append({"image_id": current_hash['image_id'], "original_image": matching_images})
 
@@ -390,7 +451,8 @@ class ImgurRepostBot():
             print('Leave Comments: {}'.format(self.config.leave_comment))
             print('Leave Downvote: {} '.format(self.config.leave_downvote))
             print('Do Backfill: {} '.format(self.config.backfill))
-            print('Flush Hashes Every {} Seconds\n'.format(self.config.hash_flush_interval))
+            print('Hash Size: {}'.format(self.config.hash_size))
+            print('Hamming Distance: {}'.format(self.config.hamming_cutoff))
 
     def run(self):
 
@@ -398,19 +460,14 @@ class ImgurRepostBot():
 
         while True:
 
-            self._output_error('This is a test')
-
             os.system('cls')
 
             print('** Current Stats **')
             print('Total Pending Hashes To Check: {}'.format(str(len(self.hash_queue))))
-            print('Total processed images: {}'.format(str(len(self.processed_images))))
+            print('Total processed images: {}'.format(str(len(self.processed_ids))))
             print('Total Reposts Found: {}'.format(str(len(self.detected_reposts))))
             print('Backfill Progress: {}'.format(str(self.backfill_progress)))
-            if self.db_conn.records_loaded:
-                print('Database Records Loaded: True\n')
-            else:
-                print('Database Records Loaded: False\n')
+            print('Yes' if self.db_conn.records_loaded else 'No')
 
             self.print_current_settings()
 
