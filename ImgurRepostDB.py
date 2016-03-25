@@ -102,7 +102,7 @@ class ImgurRepostDB():
 
         # TODO We can probably limit this to last 24 hours of IDs.
         existing_records = []
-        result = local_session.query(self.imgur_reposts).from_statement(text("SELECT * from imgur_reposts LIMIT 100")).all()
+        result = local_session.query(self.imgur_reposts).all()
         if len(result) > 0:
             for r in result:
                 existing_records.append(r.image_id)

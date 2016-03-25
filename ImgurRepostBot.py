@@ -10,7 +10,7 @@ from io import BytesIO
 import threading
 import time
 import os
-
+import logging
 
 # TODO Common memes with small text get flagged as repost.  Need to increase to 128+ bit hash
 # TODO Remove spawn_hash_check_thread
@@ -26,6 +26,7 @@ class ImgurRepostBot():
         self.delay_between_requests = 5  # Changed on the fly depending on remaining credits and time until reset
         self.thread_lock = threading.Lock()
         self.processed_images = []
+        self.logger = None
 
         if not detected_reposts:
             self.detected_reposts = []
@@ -33,6 +34,7 @@ class ImgurRepostBot():
             self.detected_reposts = detected_reposts
 
         self.config = ConfigManager()
+        self._setup_logging()
 
         self.imgur_client = ImgurClient(self.config.api_details['client_id'],
                                         self.config.api_details['client_secret'],
@@ -56,6 +58,17 @@ class ImgurRepostBot():
 
         threading.Thread(target=self._hash_processing_thread, name='Hash Processing').start()
 
+    def _setup_logging(self):
+
+        if self.config.logging:
+            print('Setting Up Logger')
+            self.logger = logging.getLogger()
+            self.logger.setLevel(logging.DEBUG)
+            formatter = logging.Formatter('%(asctime)s %(levelname)s: %(message)s')
+            fhandle = logging.FileHandler('botlog.log')
+            fhandle.setFormatter(formatter)
+            self.logger.addHandler(fhandle)
+
     def _load_existing_records(self):
         """
         Spawns a thread to load all records from the database.  This allows us to start getting new images without
@@ -69,6 +82,17 @@ class ImgurRepostBot():
                 self.processed_images.append(r)
         finally:
             self.thread_lock.release()
+
+    def _output_error(self, msg):
+
+        print(msg)
+        if self.config.logging:
+            self.logger.error(msg)
+
+    def _output_info(self, msg):
+        print(msg)
+        if self.config.logging:
+            self.logger.info(msg)
 
     def _backfill_database(self):
         """
@@ -113,7 +137,9 @@ class ImgurRepostBot():
             response = request.urlopen(url)
             img = Image.open(BytesIO(response.read()))
         except (HTTPError, ConnectionError, OSError) as e:
-            print('Error Generating Image File: \n Error Message: {}'.format(e))
+            msg = 'Error Generating Image File: \n Error Message: {}'.format(e)
+            self._output_error(msg)
+
             return None
 
         return img if img else None
@@ -131,7 +157,8 @@ class ImgurRepostBot():
             if temp:
                 items = [i for i in temp if not i.is_album and not self.check_post_title(title=i.title)]
         except (ImgurClientError, ImgurClientRateLimitError) as e:
-            print('Error Getting Gallery: {}'.format(e))
+            msg = 'Error Getting Gallery: {}'.format(e)
+            self._output_error(msg)
 
         return items
 
@@ -176,7 +203,8 @@ class ImgurRepostBot():
             self.imgur_client.gallery_item_vote(image_id, vote="down")
         except ImgurClientError as e:
             self.failed_downvotes.append(image_id)
-            print('Error Voting: {}'.format(e))
+            msg = 'Error Voting: {}'.format(e)
+            self._output_error(msg)
 
     def comment_repost(self, image_id=None, values=None):
         """
@@ -186,7 +214,7 @@ class ImgurRepostBot():
         :return:
         """
 
-        print('Leaving Comment On {}'.format(image_id))
+        self._output_info('Leaving Comment On {}'.format(image_id))
 
         message = self.build_comment_message(values=values)
 
@@ -194,7 +222,8 @@ class ImgurRepostBot():
             self.imgur_client.gallery_comment(image_id, message)
         except (ImgurClientError, ImgurClientRateLimitError) as e:
             self.failed_comments.append({'image_id': image_id, 'values': values})
-            print('Error Posting Commment: {}'.format(e))
+            msg = 'Error Posting Commment: {}'.format(e)
+            self._output_error(msg)
 
     def build_comment_message(self, values=None):
         """
@@ -223,8 +252,9 @@ class ImgurRepostBot():
             return self.config.comment_template
 
         if not format_count == total_values:
-            print('Provided Values Do Not Match Format Places In Comment Template')
-            print('Format Spots: {} \nProvided Values: {}'.format(format_count, total_values))
+            msg = 'Provided Values Do Not Match Format Places In Comment Template\n ' \
+                  'Format Spots: {} \nProvided Values: {}'.format(format_count, total_values)
+            self._output_error(msg)
             return self.config.comment_template
 
         return self.config.comment_template.format(*values)
@@ -240,7 +270,8 @@ class ImgurRepostBot():
                     self.imgur_client.gallery_item_vote(image_id, vote="down")
                     self.failed_downvotes.remove(image_id)
                 except (ImgurClientError, ImgurClientRateLimitError) as e:
-                    print('Failed To Retry Downvote On Image {}.  \nError: {}'.format(image_id, e))
+                    msg = 'Failed To Retry Downvote On Image {}.  \nError: {}'.format(image_id, e)
+                    self._output_error(msg)
 
         if self.failed_comments:
             for failed in self.failed_comments:
@@ -249,13 +280,14 @@ class ImgurRepostBot():
                     self.imgur_client.gallery_comment(failed['image_id'], message)
                     self.failed_comments.remove(failed['image_id'])
                 except (ImgurClientError, ImgurClientRateLimitError) as e:
-                    print('Failed To Retry Comment On Image {}.  \nError: {}'.format(failed['image_id'], e))
+                    msg = 'Failed To Retry Comment On Image {}.  \nError: {}'.format(failed['image_id'], e)
+                    self._output_error(msg)
 
     def _hash_processing_thread(self):
 
         while True:
             if len(self.hash_queue) > 0 and self.db_conn.records_loaded:
-                print('Inside Hash Check If Block')
+
                 current_hash = self.hash_queue.pop(0)
 
                 result, total_detections = self.check_for_repost(current_hash['hash']['hash16'],
@@ -264,7 +296,8 @@ class ImgurRepostBot():
 
                 if result:
 
-                    print('Found Reposted Image: https://imgur.com/gallery/{}'.format(current_hash['image_id']))
+                    msg = 'Found Reposted Image: https://imgur.com/gallery/{}'.format(current_hash['image_id'])
+                    self._output_info(msg)
 
                     if self.config.leave_downvote:
                         self.downvote_repost(current_hash['image_id'])
@@ -302,9 +335,7 @@ class ImgurRepostBot():
                 for img in matching_images:
                     log.write('- {}\n'.format(img))
                 log.write('\n\n')
-        else:
-            print('LOG ERROR: Missing Original URL or Matching Images')
-            return
+
 
     def _adjust_rate_limit_timing(self):
         """
@@ -351,20 +382,6 @@ class ImgurRepostBot():
 
         return [v for v in self.config.title_check_values if v in title.lower()]
 
-    def verify_image_still_exists(self, image_id=None):
-        """
-        Check a given image ID and make sure it still exists.  To be used when purging database of images
-        users have deleted
-        :param image_id:
-        :return: Bool
-        """
-
-        try:
-            img = self.imgur_client.get_image(image_id)
-        except ImgurClientError as e:
-            return None
-
-        return True
 
     def print_current_settings(self):
 
@@ -380,6 +397,8 @@ class ImgurRepostBot():
         last_run = round(time.time())
 
         while True:
+
+            self._output_error('This is a test')
 
             os.system('cls')
 
@@ -431,8 +450,9 @@ def main():
             rcheck = ImgurRepostBot()
             rcheck.run()
         except Exception as ex:
-            print('An Exception Occurred During Execution.  Flushing Remaining Hashes')
-            print('Exception Type {}'.format(type(ex)))
+            msg = 'An Exception Occurred During Execution.  Flushing Remaining Hashes\n Exception Type {}'.format(type(ex))
+            with open('ex_error.log', 'a+') as f:
+                f.write(msg)
 
 if __name__ == '__main__':              # if we're running file directly and not importing it
     main()

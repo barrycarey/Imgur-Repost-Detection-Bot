@@ -10,7 +10,7 @@ class ConfigManager():
 
     def __init__(self):
 
-        self.config_file = os.path.join(os.getcwd(), 'testing.ini')
+        self.config_file = os.path.join(os.getcwd(), 'bot.ini')
         self.config_last_modified = round(os.path.getmtime(self.config_file))
 
         # General Options - Can be overridden from ini file
@@ -21,6 +21,7 @@ class ConfigManager():
         self.min_time_between_requests = 5
         self.title_check_values = ['mrw', 'when', 'my reaction']
         self.comment_template = "We Have Detected Reposted Content.  Reference Hash: {}"
+        self.logging = False
 
         # Backfill settings.  Can be overridden via config
         self.backfill = False
@@ -92,6 +93,9 @@ class ConfigManager():
 
         if 'Backfill' in config['OPTIONS']:
             self.backfill = config['OPTIONS'].getboolean('Backfill')
+
+        if 'Logging' in config['OPTIONS']:
+            self.logging = config['OPTIONS'].getboolean('Logging')
 
         if 'BackfillDepth' in config['OPTIONS']:
             self.backfill_depth = int(config['OPTIONS']['BackfillDepth'])
