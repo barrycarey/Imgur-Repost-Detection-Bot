@@ -28,7 +28,7 @@ class ImgurRepostBot():
         self.thread_lock = threading.Lock()
         self.processed_ids = []
         self.records = []
-        self.logger = None
+        self.botlogger = None
 
         if not detected_reposts:
             self.detected_reposts = []
@@ -94,12 +94,12 @@ class ImgurRepostBot():
 
         if self.config.logging:
             print('Setting Up Logger')
-            self.logger = logging.getLogger()
-            self.logger.setLevel(logging.DEBUG)
+            self.botlogger = logging.getLogger(__name__)
+            self.botlogger.setLevel(logging.ERROR)
             formatter = logging.Formatter('%(asctime)s %(levelname)s: %(message)s')
             fhandle = logging.FileHandler('botlog.log')
             fhandle.setFormatter(formatter)
-            self.logger.addHandler(fhandle)
+            self.botlogger.addHandler(fhandle)
 
     def _load_existing_records(self):
         """
@@ -115,16 +115,17 @@ class ImgurRepostBot():
         finally:
             self.thread_lock.release()
 
-    def _output_error(self, msg):
+    def _output_error(self, msg, output=True):
 
-        print(msg)
+        if output:
+            print(msg)
         if self.config.logging:
-            self.logger.error(msg)
+            self.botlogger.error(msg)
 
     def _output_info(self, msg):
         print(msg)
         if self.config.logging:
-            self.logger.info(msg)
+            self.botlogger.info(msg)
 
     def _backfill_database(self):
         """
@@ -177,6 +178,7 @@ class ImgurRepostBot():
         return img if img else None
 
     def check_for_repost(self, hash_to_check, image_id=None, user=None):
+        start_time = time.time()
 
         results = []
 
@@ -186,13 +188,19 @@ class ImgurRepostBot():
             if image_id == r['image_id'] or r['user'] == user:
                 continue
 
-            hamming_distance = hamming(hash_to_check[hash_size], r[hash_size])
+            try:
+                hamming_distance = hamming(hash_to_check[hash_size], r[hash_size])
+                self.botlogger.info('Successful hash comparison')
+            except Exception as e:
+                msg = 'Exceptoin in Hash Check Thread: {}'.format(e)
+                self._output_error(msg, output=False)
+                self._output_error(r, output=False)
+                continue
 
             if hamming_distance < self.config.hamming_cutoff:
-                print('Detected repost')
                 results.append(r)
-
-
+        msg = 'Run Time' + str(time.time() - start_time)
+        self._output_error(msg)
         return results
 
     def generate_latest_images(self, section='user', sort='time', page=0):
@@ -453,6 +461,7 @@ class ImgurRepostBot():
             print('Do Backfill: {} '.format(self.config.backfill))
             print('Hash Size: {}'.format(self.config.hash_size))
             print('Hamming Distance: {}'.format(self.config.hamming_cutoff))
+            print('\n')
 
     def run(self):
 
@@ -467,7 +476,7 @@ class ImgurRepostBot():
             print('Total processed images: {}'.format(str(len(self.processed_ids))))
             print('Total Reposts Found: {}'.format(str(len(self.detected_reposts))))
             print('Backfill Progress: {}'.format(str(self.backfill_progress)))
-            print('Yes' if self.db_conn.records_loaded else 'No')
+            print('DB Records Loaded: {}{}'.format('Yes' if self.db_conn.records_loaded else 'No', '\n'))
 
             self.print_current_settings()
 
@@ -493,6 +502,8 @@ class ImgurRepostBot():
                 self.insert_latest_images()
                 self.flush_failed_votes_and_comments()
                 last_run = round(time.time())
+
+            self._check_thread_status()
 
             time.sleep(2)
 

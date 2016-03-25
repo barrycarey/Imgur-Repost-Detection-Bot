@@ -10,14 +10,14 @@ def dhash(image, hash_size=8):
     """
 
     if not isinstance(image, (GifImageFile, JpegImageFile, PngImageFile)):
-        return False
+        return None
 
     # Grayscale and shrink the image
     try:
         image = image.convert('L').resize((hash_size + 1, hash_size), Image.ANTIALIAS)
     except (TypeError, OSError) as e:
         print('Error Creating Image Hash. \n Error Message: {}'.format(e))
-        return False
+        return None
 
     pixels = list(image.getdata())
 
