@@ -52,10 +52,16 @@ class ImgurRepostDB():
 
         local_session = self.Session()  # Grab the DB session for this thread
 
-        local_session.add(self.imgur_reposts(date=datetime.datetime.utcnow(), url=url, hash=hash16, hash64=hash64,
-                                             hash256=hash256, user=user, image_id=image_id, submitted_to_imgur=submission_time))
-        local_session.flush()
-        local_session.commit()
+        try:
+
+            local_session.add(self.imgur_reposts(date=datetime.datetime.utcnow(), url=url, hash=hash16, hash64=hash64,
+                                                 hash256=hash256, user=user, image_id=image_id, submitted_to_imgur=submission_time))
+            local_session.flush()
+            local_session.commit()
+        except Exception as e:
+            print('Exception during insert')
+            print(e)
+            print(hashes)
 
     def update_entry(self, image_id, sub_time):
         """
@@ -104,7 +110,7 @@ class ImgurRepostDB():
         # TODO We can probably limit this to last 24 hours of IDs.
         existing_records = []
         #result = local_session.query(self.imgur_reposts).all()
-        result = local_session.query(self.imgur_reposts).from_statement(text("SELECT * from imgur_reposts LIMIT 50000")).all()
+        result = local_session.query(self.imgur_reposts).from_statement(text("SELECT * from imgur_reposts LIMIT 430000")).all()
 
         image_ids = []
         if len(result) > 0:
