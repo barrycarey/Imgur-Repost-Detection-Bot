@@ -17,7 +17,6 @@ class ConfigManager():
         self.leave_comment = False
         self.leave_downvote = False
         self.log_reposts = False
-        self.hash_flush_interval = 20
         self.min_time_between_requests = 5
         self.title_check_values = ['mrw', 'when', 'my reaction']
         self.comment_template = "We Have Detected Reposted Content.  Reference Hash: {}"
@@ -81,9 +80,6 @@ class ConfigManager():
 
         if 'DownVote' in config['OPTIONS']:
             self.leave_downvote = config['OPTIONS'].getboolean('Downvote')
-
-        if 'FlushInterval' in config['OPTIONS']:
-            self.hash_flush_interval = int(config['OPTIONS']['FlushInterval'])
 
         if 'CommentTemplate' in config['OPTIONS']:
             self.comment_template = config['OPTIONS']['CommentTemplate']

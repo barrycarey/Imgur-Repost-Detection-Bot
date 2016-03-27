@@ -26,7 +26,8 @@ Once ready run ImgurRepostBot.py
 **Notable Features**
 
  - Automatic API rate limiting.  It continually checks your remaining credits and the time until they reset.  It then adjusts the request delay to fit within that time. 
- - Backfill Database.  This allows the bot to work backwards through usersub pages while still getting the newest images.  This allows you to backfill your database
+ - Backfill Database.  This allows the bot to work backwards through usersub pages while still getting the newest images.  This allows you to backfill your database.  You can set the starting page and depth via the ini. 
+ - Change process pool size.  This allows you to tweak how much CPU is used while comparing hashes for reposts.  Large hashes are CPU intensive.  
  - Configurable hash size and hamming distance allows you to tweak the accuracy of repost detections. 
  - Enable / Disable Automatic Downvote and Comment via bot.ini
  - Modify settings in the .ini file while the bot is running

@@ -19,7 +19,6 @@ class ImgurRepostBot():
         os.system('cls')
         self.failed_downvotes = []  # Store failed downvotes for later processing
         self.failed_comments = []  # Store failed comments for later processing
-        self.last_hash_flush = round(time.time())
         self.delay_between_requests = 5  # Changed on the fly depending on remaining credits and time until reset
         self.thread_lock = threading.Lock()
         self.logger = None
@@ -371,6 +370,7 @@ class ImgurRepostBot():
         print('[+] Leave Comments: {}'.format(self.config.leave_comment))
         print('[+] Leave Downvote: {} '.format(self.config.leave_downvote))
         print('[+] Do Backfill: {} '.format(self.config.backfill))
+        print('[+] Process Pool Size: {} '.format(self.config.hash_proc_limit))
         print('[+] Hash Size: {} bit'.format(self.config.hash_size))
         print('[+] Hamming Distance: {}{}'.format(self.config.hamming_cutoff, '\n'))
 
