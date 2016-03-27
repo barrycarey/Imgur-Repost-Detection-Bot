@@ -16,6 +16,7 @@ class HashProcessing():
         self.total_default_threads = threading.active_count() + 1
         self.active_hash_threads = 0
         self.total_in_queue = 0
+        self.pool_status = 'Running'
 
         threading.Thread(target=self._spawn_main_hash_thread_proc, name="Main Hash Thread").start()
 
@@ -34,6 +35,7 @@ class HashProcessing():
         As new images are added to the hash queue they are popped off and submitted to the process pool.
         """
         while True:
+            self.pool_status = 'Running'
             process_limit = self.config.hash_proc_limit
             pool = self.create_pool(process_limit)
             while True:
@@ -48,6 +50,7 @@ class HashProcessing():
                 # If user changes process limit close down pool and recreate
                 if process_limit != self.config.hash_proc_limit:
                     print('Process limit changed.  Closing this pool and creating new')
+                    self.pool_status = 'Emptying For Process Count Change'
                     pool.close()
                     pool.join()
                     break

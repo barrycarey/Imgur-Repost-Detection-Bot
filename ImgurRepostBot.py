@@ -215,7 +215,7 @@ class ImgurRepostBot():
                     # If this is called from back filling don't add hash to be checked
                     if not backfill:
                         self.hash_processing.hash_queue.append(record)
-                        print('Insert {}'.format(item.link))
+                        print('Processing {}'.format(item.link))
                     else:
                         print('Backfill Insert {}'.format(item.link))
 
@@ -379,14 +379,14 @@ class ImgurRepostBot():
         print('[+] Hash Size: {} bit'.format(self.config.hash_size))
         print('[+] Hamming Distance: {}{}'.format(self.config.hamming_cutoff, '\n'))
 
-
     def print_current_stats(self):
         print('Current Stats')
+        print('[+] Total Images In Database: {}'.format(str(len(self.hash_processing.processed_ids))))
         print('[+] Total Hashes Waiting In Pool: {}'.format(str(self.hash_processing.total_in_queue)))
         print('[+] Total Hashes In Hash Queue: {}'.format(str(len(self.hash_processing.hash_queue))))
-        print('[+] Total Images In Database: {}'.format(str(len(self.hash_processing.processed_ids))))
+        print('[+] Process Pool Status: {}'.format(self.hash_processing.pool_status))
         print('[+] Total Reposts Found: {}'.format(str(self.detected_reposts)))
-        print('[+] Backfill Progress: Page {}\n'.format(str(self.backfill_progress)))
+        print('[+] Backfill Progress: {}\n'.format('Page ' + str(self.backfill_progress) if self.config.backfill else 'Disabled'))
 
 
     def print_api_stats(self):

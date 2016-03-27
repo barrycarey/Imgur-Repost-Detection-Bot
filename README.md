@@ -7,7 +7,7 @@ While running it pulls all new images from Usersub, calculates a hash (using Dha
 
 All hashes for new images are added to a queue.  This queue is handled via a process pool.  The amount of processes is configurable via the ini.
 
-![alt text](http://puu.sh/nW3mr/ed03d7d601.png "Screenshot")
+![alt text](http://puu.sh/nWfJg/8218def69c.png "Screenshot")
 
 **How Does It Detect Reposted Content?**
 
