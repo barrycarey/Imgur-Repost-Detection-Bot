@@ -10,7 +10,7 @@ class ConfigManager():
 
     def __init__(self):
 
-        self.config_file = os.path.join(os.getcwd(), 'bot.ini')
+        self.config_file = os.path.join(os.getcwd(), 'testing.ini')
         self.config_last_modified = round(os.path.getmtime(self.config_file))
 
         # General Options - Can be overridden from ini file

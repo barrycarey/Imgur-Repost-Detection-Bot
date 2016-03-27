@@ -2,7 +2,6 @@ from ImgurRepostDB import ImgurRepostDB
 from imgurpython import ImgurClient
 from ConfigManager import ConfigManager
 from imgurpython.helpers.error import ImgurClientError, ImgurClientRateLimitError
-from Dhash import dhash
 from urllib import request
 from urllib.error import HTTPError
 from PIL import Image
@@ -11,11 +10,7 @@ import threading
 import time
 import os
 import logging
-from distance import hamming
 from ImgurHashProcessing import HashProcessing
-
-# TODO Common memes with small text get flagged as repost.  Need to increase to 128+ bit hash
-# TODO Remove spawn_hash_check_thread
 
 class ImgurRepostBot():
 
@@ -27,7 +22,7 @@ class ImgurRepostBot():
         self.delay_between_requests = 5  # Changed on the fly depending on remaining credits and time until reset
         self.thread_lock = threading.Lock()
         self.logger = None
-        self.detected_reposts = []
+        self.detected_reposts = 0
 
 
         self.config = ConfigManager()
@@ -51,7 +46,9 @@ class ImgurRepostBot():
         if self.config.backfill:
             threading.Thread(target=self._backfill_database, name='Backfill').start()
 
-        self.hash_processing = HashProcessing(self.config, self.logger, self.thread_lock, processed_ids, records)
+        self.hash_processing = HashProcessing(self.config, processed_ids, records)
+
+        threading.Thread(target=self._repost_processing_thread, name='RepostProcessing').start()
 
 
 
@@ -60,7 +57,7 @@ class ImgurRepostBot():
         Check status of critical threads.  If they are found dead start them back up
         :return:
         """
-        thread_names = ['configmonitor', 'backfill']
+        thread_names = ['configmonitor', 'backfill', 'repostprocessing']
 
         for thrd in threading.enumerate():
             if thrd.name.lower() in thread_names:
@@ -78,6 +75,12 @@ class ImgurRepostBot():
                 msg = 'Backfill Thread Crashed'
                 self._output_error(msg)
                 threading.Thread(target=self._backfill_database, name='Backfill').start()
+                continue
+
+            if i == 'repostprocessing':
+                msg = 'Repost Processing Thread Crashed'
+                self._output_error(msg)
+                threading.Thread(target=self._repost_processing_thread, name='RepostProcessing').start()
                 continue
 
 
@@ -209,15 +212,12 @@ class ImgurRepostBot():
 
                     # If this is called from back filling don't add hash to be checked
                     if not backfill:
-                        # TODO Remove
-                        #self.hash_queue.append({"hash": image_hash, "image_id": item.id, "user": item.account_url})
                         self.hash_processing.hash_queue.append(record)
                         print('Insert {}'.format(item.link))
                     else:
                         print('Backfill Insert {}'.format(item.link))
 
-                    # TODO change this to just pass record
-                    self.db_conn.add_entry(item.link, image_hash, item.account_url, item.id, item.datetime)
+                    self.db_conn.add_entry(record)
 
     def downvote_repost(self, image_id):
         """
@@ -307,57 +307,20 @@ class ImgurRepostBot():
                     msg = 'Failed To Retry Comment On Image {}.  \nError: {}'.format(failed['image_id'], e)
                     self._output_error(msg)
 
-    def _hash_processing_thread(self):
-
+    def _repost_processing_thread(self):
+        """
+        Runs in background monitor the queue for detected reposts
+        :return:
+        """
         while True:
-            if len(self.hash_queue) > 0 and self.db_conn.records_loaded:
+            if len(self.hash_processing.repost_queue) > 0:
+                current_repost = self.hash_processing.repost_queue.pop(0)
+                if self.config.leave_downvote:
+                    self.downvote_repost(current_repost['image_id'])
 
-                current_hash = self.hash_queue.pop(0)
 
-                result = self.check_for_repost(current_hash['hash'],
-                                                                 image_id=current_hash['image_id'],
-                                                                 user=current_hash['user'])
-
-                if result:
-
-                    msg = 'Found Reposted Image: https://imgur.com/gallery/{}'.format(current_hash['image_id'])
-                    self._output_info(msg)
-
-                    if self.config.leave_downvote:
-                        self.downvote_repost(current_hash['image_id'])
-
-                    # TODO Need to think of a better way to do the comments.  Needs to be more easily user customizable
-                    if self.config.leave_comment:
-                        message_values = []
-                        message_values.append(len(result))
-                        message_values.append(current_hash['hash'])
-                        self.comment_repost(image_id=current_hash['image_id'], values=message_values)
-
-                    matching_images = []
-                    for r in result:
-                        print('Original: https://imgur.com/gallery/{}'.format(r['image_id']))
-                        matching_images.append('https://imgur.com/gallery/{}'.format(r['image_id']))
-
-                    self.detected_reposts.append({"image_id": current_hash['image_id'], "original_image": matching_images})
-
-                    if self.config.log_reposts:
-                        self.log_repost(repost_url='https://imgur.com/gallery/{}'.format(current_hash['image_id']),
-                                        matching_images=matching_images)
-
-    def log_repost(self, repost_url=None, matching_images=None):
-        """
-        Log the reposted image out to a file.  Also include all matching images we found
-        """
-        log_file = os.path.join(os.getcwd(), "repost.log")  # TODO Move to config
-
-        if repost_url and matching_images:
-            with open(log_file, 'a+') as log:
-                log.write('Repost Image: {}\n'.format(repost_url))
-                log.write('Matching Images: \n')
-                for img in matching_images:
-                    log.write('- {}\n'.format(img))
-                log.write('\n\n')
-
+                self.detected_reposts += 1
+                # TODO add comment handling.  Records in repost queue need to be sorted to identify oldest post
 
     def _adjust_rate_limit_timing(self):
         """
@@ -404,17 +367,35 @@ class ImgurRepostBot():
 
         return [v for v in self.config.title_check_values if v in title.lower()]
 
-
     def print_current_settings(self):
+        print('** Current Settings **')
+        print('Leave Comments: {}'.format(self.config.leave_comment))
+        print('Leave Downvote: {} '.format(self.config.leave_downvote))
+        print('Do Backfill: {} '.format(self.config.backfill))
+        print('Hash Size: {}'.format(self.config.hash_size))
+        print('Hamming Distance: {}'.format(self.config.hamming_cutoff))
+        print('\n')
 
+    def print_current_stats(self):
+        print('** Current Stats **')
+        print('Total Hashes Waiting In Pool: {}'.format(str(self.hash_processing.total_in_queue)))
+        print('Total Hashes In Hash Queue: {}'.format(str(len(self.hash_processing.hash_queue))))
+        print('Total processed images: {}'.format(str(len(self.hash_processing.processed_ids))))
+        print('Total Reposts Found: {}'.format(str(self.detected_reposts)))
+        print('Backfill Progress: {}'.format(str(self.backfill_progress)))
 
-            print('** Current Settings **')
-            print('Leave Comments: {}'.format(self.config.leave_comment))
-            print('Leave Downvote: {} '.format(self.config.leave_downvote))
-            print('Do Backfill: {} '.format(self.config.backfill))
-            print('Hash Size: {}'.format(self.config.hash_size))
-            print('Hamming Distance: {}'.format(self.config.hamming_cutoff))
-            print('\n')
+    def print_api_stats(self):
+        print('** API Settings **')
+        print('Remaining Credits: {}'.format(self.imgur_client.credits['ClientRemaining']))
+        if self.imgur_client.credits['UserReset']:
+            print('Minutes Until Credit Reset: {}'.format(round((int(self.imgur_client.credits['UserReset']) - time.time()) / 60)))
+
+        # Make it clear we are overriding the default delay to meet credit refill window
+        if self.delay_between_requests == self.config.min_time_between_requests:
+            request_delay = self.delay_between_requests
+        else:
+            request_delay = str(self.delay_between_requests) + ' (Overridden By Rate Limit)'
+        print('Delay Between Requests: {}\n'.format(request_delay))
 
     def run(self):
 
@@ -424,35 +405,16 @@ class ImgurRepostBot():
 
             os.system('cls')
 
-            print('** Current Stats **')
-            print('Total Pending Hashes To Check: {}'.format(str(self.hash_processing.total_in_queue)))
-            print('Total processed images: {}'.format(str(len(self.hash_processing.processed_ids))))
-            print('Total Reposts Found: {}'.format(str(len(self.hash_processing.repost_queue))))
-            print('Backfill Progress: {}'.format(str(self.backfill_progress)))
-            print('Active Hash Threads: {}'.format(str(self.hash_processing.active_hash_threads)))
-            print('DB Records Loaded: {}{}'.format('Yes' if self.db_conn.records_loaded else 'No', '\n'))
-
-
+            self.print_current_stats()
             self.print_current_settings()
-
-            print('** API Settings **')
-            print('Remaining Credits: {}'.format(self.imgur_client.credits['ClientRemaining']))
-            if self.imgur_client.credits['UserReset']:
-                print('Minutes Until Credit Reset: {}'.format(round((int(self.imgur_client.credits['UserReset']) - time.time()) / 60)))
-
-            # Make it clear we are overriding the default delay to meet credit refill window
-            if self.delay_between_requests == self.config.min_time_between_requests:
-                request_delay = self.delay_between_requests
-            else:
-                request_delay = str(self.delay_between_requests) + ' (Overridden By Rate Limit)'
-            print('Delay Between Requests: {}\n'.format(request_delay))
+            self.print_api_stats()
 
             if round(time.time()) - last_run > self.delay_between_requests:
                 self.insert_latest_images()
                 self.flush_failed_votes_and_comments()
                 last_run = round(time.time())
 
-            #self._check_thread_status()
+            self._check_thread_status()
 
             time.sleep(2)
 

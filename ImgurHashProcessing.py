@@ -1,5 +1,4 @@
 import threading
-import time
 from distance import hamming
 from Dhash import dhash
 from multiprocessing import Pool
@@ -7,13 +6,11 @@ from multiprocessing import Pool
 
 class HashProcessing():
 
-    def __init__(self, config, logger, thread_lock, image_ids, records):
+    def __init__(self, config, image_ids, records):
 
         self.config = config
-        #self.logger = logger
         self.hash_queue = []
         self.repost_queue = []
-        #self.thread_lock = thread_lock
         self.records = records
         self.processed_ids = image_ids
         self.total_default_threads = threading.active_count() + 1
@@ -60,7 +57,6 @@ class HashProcessing():
 
     def _repost_checker_proc(self, to_be_checked, records, hashsize, hd):
 
-        print('starting checker')
         results = [{
             'image_id': to_be_checked['image_id'],
             'older_images': []
