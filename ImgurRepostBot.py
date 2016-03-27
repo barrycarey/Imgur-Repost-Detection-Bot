@@ -117,24 +117,28 @@ class ImgurRepostBot():
         """
 
         while True:
-            original_start_page = self.config.backfill_start_page # So we can detect if it's changed in the config
-            current_page = self.config.backfill_start_page
-            while current_page < self.config.backfill_depth + self.config.backfill_start_page:
+            if self.config.backfill:
+                original_start_page = self.config.backfill_start_page # So we can detect if it's changed in the config
+                current_page = self.config.backfill_start_page
+                while current_page < self.config.backfill_depth + self.config.backfill_start_page:
 
-                if not self.db_conn.records_loaded:
-                    continue
+                    if not self.db_conn.records_loaded:
+                        continue
 
-                self.backfill_progress = current_page
-                self.insert_latest_images(page=current_page, backfill=True)
-                current_page += 1
-                time.sleep(2)
+                    self.backfill_progress = current_page
+                    self.insert_latest_images(page=current_page, backfill=True)
+                    current_page += 1
+                    time.sleep(self.delay_between_requests)
 
-                if self.config.backfill_start_page != original_start_page:
-                    print('Backfill Start Page Changed In Config')
-                    break
+                    if self.config.backfill_start_page != original_start_page:
+                        print('Backfill Start Page Changed In Config')
+                        break
 
-            self.backfill_progress = 'Completed'
-            break
+                self.backfill_progress = 'Completed'
+                break
+            else:
+                self.backfill_progress = 'Disabled'
+                time.sleep(5)
 
     def _generate_img(self, url=None):
         """
@@ -367,9 +371,10 @@ class ImgurRepostBot():
 
     def print_current_settings(self):
         print('Current Settings')
-        print('[+] Leave Comments: {}'.format(self.config.leave_comment))
-        print('[+] Leave Downvote: {} '.format(self.config.leave_downvote))
-        print('[+] Do Backfill: {} '.format(self.config.backfill))
+        print('[+] Leave Comments: {}'.format('Enabled' if self.config.leave_comment else 'Disabled'))
+        print('[+] Leave Downvote: {} '.format('Enabled' if self.config.leave_downvote else 'Disabled'))
+        print('[+] Backfill: {} '.format('Enabled' if self.config.backfill else 'Disabled'))
+        print('[+] Backfill Depth: {} '.format(self.config.backfill_depth if self.config.backfill else 'Disabled'))
         print('[+] Process Pool Size: {} '.format(self.config.hash_proc_limit))
         print('[+] Hash Size: {} bit'.format(self.config.hash_size))
         print('[+] Hamming Distance: {}{}'.format(self.config.hamming_cutoff, '\n'))
@@ -381,7 +386,7 @@ class ImgurRepostBot():
         print('[+] Total Hashes In Hash Queue: {}'.format(str(len(self.hash_processing.hash_queue))))
         print('[+] Total Images In Database: {}'.format(str(len(self.hash_processing.processed_ids))))
         print('[+] Total Reposts Found: {}'.format(str(self.detected_reposts)))
-        print('[+] Backfill Progress: {}{}'.format(str(self.backfill_progress), '\n'))
+        print('[+] Backfill Progress: Page {}\n'.format(str(self.backfill_progress)))
 
 
     def print_api_stats(self):
