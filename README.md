@@ -25,7 +25,9 @@ Once ready run ImgurRepostBot.py
 
 **Notable Features**
 
- - Custom Comment Templates Using {} As Value Placeholders
+ - Automatic API rate limiting.  It continually checks your remaining credits and the time until they reset.  It then adjusts the request delay to fit within that time. 
+ - Backfill Database.  This allows the bot to work backwards through usersub pages while still getting the newest images.  This allows you to backfill your database
+ - Configurable hash size and hamming distance allows you to tweak the accuracy of repost detections. 
  - Enable / Disable Automatic Downvote and Comment via bot.ini
  - Modify settings in the .ini file while the bot is running
  - Auto Retry failed comments and downvotes.  If Imgur is over capacity they will be saved and tried again later
@@ -46,6 +48,7 @@ Example Values:  ['s78sdfy', '31b132726521b372]
  - <a href="https://github.com/Imgur/imgurpython" target="_blank">imgurpython</a>
  - <a href="https://python-pillow.github.io/" target="_blank">Pillow</a>
  - <a href="https://github.com/PyMySQL/PyMySQL/" target="_blank">PyMysql</a>
+ - <a href="https://pypi.python.org/pypi/Distance/" target="_blank">Distance</a>
 
 **Disclaimer**
 

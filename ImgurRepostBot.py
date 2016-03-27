@@ -379,7 +379,7 @@ class ImgurRepostBot():
         print('Current Stats')
         print('[+] Total Hashes Waiting In Pool: {}'.format(str(self.hash_processing.total_in_queue)))
         print('[+] Total Hashes In Hash Queue: {}'.format(str(len(self.hash_processing.hash_queue))))
-        print('[+] Total processed images: {}'.format(str(len(self.hash_processing.processed_ids))))
+        print('[+] Total Images In Database: {}'.format(str(len(self.hash_processing.processed_ids))))
         print('[+] Total Reposts Found: {}'.format(str(self.detected_reposts)))
         print('[+] Backfill Progress: {}{}'.format(str(self.backfill_progress), '\n'))
 
