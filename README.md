@@ -3,15 +3,17 @@
 
 This Python script acts as an Imgur bot that detects reposted content.
 
-While running it pulls all new images from Usersub, calculates a hash (using Dhash), stores it in a MySQL Database.  The image hash is set aside to be checked in batches.
+While running it pulls all new images from Usersub, calculates a hash (using Dhash for 16, 64, and 256bit hashes), stores it in a MySQL Database.  
 
-Every 30 seconds (configurable via bot.ini) it will take the accumulated hashes and check them against the database.  If we find reposted content the bot can downvote and/or leave a comment.  This behavior can be modified in the bot.ini file.
+All hashes for new images are added to a queue.  This queue is handled via a process pool.  The amount of processes is configurable via the ini.
+
+![alt text](http://puu.sh/nW3mr/ed03d7d601.png "Screenshot")
 
 **How Does It Detect Reposted Content?**
 
 For each image a hash is generated using the Dhash algorithm and stored in the database.
 
-We can then check the hash of new images against existing hashes using hamming distance. If the hamming distance is found to be less than 2 it is treated as reposted content.
+We can then check the hash of new images against existing hashes using hamming distance. If the hamming distance is less than the threshold set in the config it is flagged as a repost.
 
 **Configuration**
 

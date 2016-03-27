@@ -16,6 +16,7 @@ class ImgurRepostBot():
 
     def __init__(self):
 
+        os.system('cls')
         self.failed_downvotes = []  # Store failed downvotes for later processing
         self.failed_comments = []  # Store failed comments for later processing
         self.last_hash_flush = round(time.time())
@@ -83,7 +84,6 @@ class ImgurRepostBot():
                 threading.Thread(target=self._repost_processing_thread, name='RepostProcessing').start()
                 continue
 
-
     def _setup_logging(self):
 
         if self.config.logging:
@@ -93,7 +93,6 @@ class ImgurRepostBot():
             fhandle = logging.FileHandler('botlog.log')
             fhandle.setFormatter(formatter)
             self.logger.addHandler(fhandle)
-
 
     def _output_error(self, msg, output=True):
         """
@@ -368,34 +367,35 @@ class ImgurRepostBot():
         return [v for v in self.config.title_check_values if v in title.lower()]
 
     def print_current_settings(self):
-        print('** Current Settings **')
-        print('Leave Comments: {}'.format(self.config.leave_comment))
-        print('Leave Downvote: {} '.format(self.config.leave_downvote))
-        print('Do Backfill: {} '.format(self.config.backfill))
-        print('Hash Size: {}'.format(self.config.hash_size))
-        print('Hamming Distance: {}'.format(self.config.hamming_cutoff))
-        print('\n')
+        print('Current Settings')
+        print('[+] Leave Comments: {}'.format(self.config.leave_comment))
+        print('[+] Leave Downvote: {} '.format(self.config.leave_downvote))
+        print('[+] Do Backfill: {} '.format(self.config.backfill))
+        print('[+] Hash Size: {} bit'.format(self.config.hash_size))
+        print('[+] Hamming Distance: {}{}'.format(self.config.hamming_cutoff, '\n'))
+
 
     def print_current_stats(self):
-        print('** Current Stats **')
-        print('Total Hashes Waiting In Pool: {}'.format(str(self.hash_processing.total_in_queue)))
-        print('Total Hashes In Hash Queue: {}'.format(str(len(self.hash_processing.hash_queue))))
-        print('Total processed images: {}'.format(str(len(self.hash_processing.processed_ids))))
-        print('Total Reposts Found: {}'.format(str(self.detected_reposts)))
-        print('Backfill Progress: {}'.format(str(self.backfill_progress)))
+        print('Current Stats')
+        print('[+] Total Hashes Waiting In Pool: {}'.format(str(self.hash_processing.total_in_queue)))
+        print('[+] Total Hashes In Hash Queue: {}'.format(str(len(self.hash_processing.hash_queue))))
+        print('[+] Total processed images: {}'.format(str(len(self.hash_processing.processed_ids))))
+        print('[+] Total Reposts Found: {}'.format(str(self.detected_reposts)))
+        print('[+] Backfill Progress: {}{}'.format(str(self.backfill_progress), '\n'))
+
 
     def print_api_stats(self):
-        print('** API Settings **')
-        print('Remaining Credits: {}'.format(self.imgur_client.credits['ClientRemaining']))
+        print('API Settings')
+        print('[+] Remaining Credits: {}'.format(self.imgur_client.credits['ClientRemaining']))
         if self.imgur_client.credits['UserReset']:
-            print('Minutes Until Credit Reset: {}'.format(round((int(self.imgur_client.credits['UserReset']) - time.time()) / 60)))
+            print('[+] Time Until Credit Reset: {} Minutes'.format(round((int(self.imgur_client.credits['UserReset']) - time.time()) / 60)))
 
         # Make it clear we are overriding the default delay to meet credit refill window
         if self.delay_between_requests == self.config.min_time_between_requests:
-            request_delay = self.delay_between_requests
+            request_delay = str(self.delay_between_requests) + ' Seconds'
         else:
-            request_delay = str(self.delay_between_requests) + ' (Overridden By Rate Limit)'
-        print('Delay Between Requests: {}\n'.format(request_delay))
+            request_delay = str(self.delay_between_requests) + ' Seconds (Overridden By Rate Limit)'
+        print('[+] Delay Between Requests: {} \n'.format(request_delay))
 
     def run(self):
 
