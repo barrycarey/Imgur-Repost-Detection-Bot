@@ -35,11 +35,15 @@ Once ready run ImgurRepostBot.py
 
 **Comment Template Usage**
 
-You can specify a custom comment template via the bot.ini file.  This allows you to use {} as place holders for values in the comment. 
+You can specify a custom comment template via the bot.ini file.  This allows you to use {value} as place holders for values in the comment. 
 
-You then pass a list of the values into comment_repost(values=values).  It will format the comment based on your template and the list of values you pass in. 
-
-Example Comment Template:  Detected Reposted Image with ID {} and Hash {}
+Available Values Are: 
+ - {count} - Print the number of matching images
+ - {g_url} - Prints the gallery URL of oldest match
+ - {d_url} - Prints the direct URL of the oldest match
+ - {submitted_epoch} - Prints the epoch timestamp of oldest match
+ - {submitted_human} - Prints a the human readable date of oldest match
+ - {user} - Prints the user of the oldest match
 
 Example Values:  ['s78sdfy', '31b132726521b372]
 
