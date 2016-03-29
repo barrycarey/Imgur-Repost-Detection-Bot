@@ -45,7 +45,7 @@ Available Values Are:
  - {submitted_human} - Prints a the human readable date of oldest match
  - {user} - Prints the user of the oldest match
 
-Example Values:  ['s78sdfy', '31b132726521b372]
+Example: Image submitted {count} times.  First seen {submitted_human}
 
 **Required Libraries**
 
