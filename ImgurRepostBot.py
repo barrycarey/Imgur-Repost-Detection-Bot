@@ -244,6 +244,7 @@ class ImgurRepostBot():
 
         self._output_info('Leaving Comment On {}'.format(image_id))
         message = self.build_comment_message(values=values)
+
         if not message:
             return
 
@@ -254,40 +255,6 @@ class ImgurRepostBot():
             msg = 'Error Posting Commment: {}'.format(e)
             self._output_error(msg)
 
-    # TODO Remove
-    def build_comment_message_old(self, values=None):
-        """
-        Build the message to use in the comment.
-
-        We first parse the comment template look for {} to count how many custom values we need to insert.   We make
-        sure the number we find matches the number in the values arg.
-
-        Example Comment Template: Detected Reposted Image with ID {} and Hash {}
-        Example Values: ['s78sdfy', '31b132726521b372]
-        """
-
-        # Make sure we got a list
-        if values and isinstance(values, list):
-            total_values = len(values)
-        else:
-            total_values = 0
-
-        format_count = 0
-        for i in self.config.comment_template:
-            if i == '{':
-                format_count += 1
-
-        # If there are no format options return the raw template
-        if format_count == 0:
-            return self.config.comment_template
-
-        if not format_count == total_values:
-            msg = 'Provided Values Do Not Match Format Places In Comment Template\n ' \
-                  'Format Spots: {} \nProvided Values: {}'.format(format_count, total_values)
-            self._output_error(msg)
-            return self.config.comment_template
-
-        return self.config.comment_template.format(*values)
 
     def build_comment_message(self, values=None):
 
@@ -348,19 +315,20 @@ class ImgurRepostBot():
         while True:
             if len(self.hash_processing.repost_queue) > 0:
                 current_repost = self.hash_processing.repost_queue.pop(0)
-                sorted_reposts = sorted(current_repost['older_images'], key=itemgetter('submitted'))
+                image_id = current_repost[0]['image_id']
+                sorted_reposts = sorted(current_repost[0]['older_images'], key=itemgetter('submitted'))
 
                 if self.config.leave_downvote:
-                    self.downvote_repost(current_repost['image_id'])
+                    self.downvote_repost(image_id)
 
                 if self.config.leave_comment:
-                    self.comment_repost(current_repost['image_id'], values=sorted_reposts)
+                    self.comment_repost(image_id, values=sorted_reposts)
 
                 self.detected_reposts += 1
 
                 if self.config.log_reposts:
                     with open('repost.log', 'a+') as f:
-                        f.write('Repost Image: https://imgur.com/gallery/{}\n'.format(current_repost['image_id']))
+                        f.write('Repost Image: https://imgur.com/gallery/{}\n'.format(image_id))
                         f.write('Matching Images:\n')
                         for r in sorted_reposts:
                             f.write(r['gallery_url'] + '\n')

@@ -4,6 +4,11 @@ from Dhash import dhash
 from multiprocessing import Pool, cpu_count
 import time
 
+def proc_cb(r):
+        self.total_in_queue -= 1
+        if r:
+            self.repost_queue.append(r)
+
 class HashProcessing():
 
     def __init__(self, config, image_ids, records):
@@ -22,6 +27,7 @@ class HashProcessing():
 
 
     def proc_cb(self, r):
+
         self.total_in_queue -= 1
         if r:
             self.repost_queue.append(r)
@@ -55,7 +61,6 @@ class HashProcessing():
                     pool.join()
                     break
 
-    @staticmethod
     def create_pool(self, process_limit):
         return Pool(processes=process_limit, maxtasksperchild=15)
 
@@ -84,7 +89,7 @@ class HashProcessing():
                 found_repost = True
                 results[0]['older_images'].append(r)
 
-        return results if found_repost else {}
+        return results if found_repost else None
 
 
     def generate_hash(self, img):
