@@ -90,6 +90,7 @@ class ImgurRepostDB():
                 record = {
                     'image_id': r.image_id,
                     'url': r.url,
+                    'gallery_url': 'https://imgur.com/gallery/{}'.format(r.image_id),
                     'user': r.user,
                     'submitted': r.submitted_to_imgur,
                     'hash16': r.hash,

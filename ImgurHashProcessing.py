@@ -1,8 +1,8 @@
 import threading
 from distance import hamming
 from Dhash import dhash
-from multiprocessing import Pool
-
+from multiprocessing import Pool, cpu_count
+import time
 
 class HashProcessing():
 
@@ -55,6 +55,7 @@ class HashProcessing():
                     pool.join()
                     break
 
+    @staticmethod
     def create_pool(self, process_limit):
         return Pool(processes=process_limit, maxtasksperchild=15)
 

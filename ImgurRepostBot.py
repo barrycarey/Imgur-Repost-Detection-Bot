@@ -11,6 +11,7 @@ import time
 import os
 import logging
 from ImgurHashProcessing import HashProcessing
+from operator import itemgetter
 
 class ImgurRepostBot():
 
@@ -202,6 +203,7 @@ class ImgurRepostBot():
                     record = {
                         'image_id': item.id,
                         'url': item.link,
+                        'gallery_url': 'https://imgur.com/gallery/{}'.format(item.id),
                         'user': item.account_url,
                         'submitted': item.datetime,
                         'hash16': image_hash['hash16'],
@@ -241,8 +243,9 @@ class ImgurRepostBot():
         """
 
         self._output_info('Leaving Comment On {}'.format(image_id))
-
         message = self.build_comment_message(values=values)
+        if not message:
+            return
 
         try:
             self.imgur_client.gallery_comment(image_id, message)
@@ -251,7 +254,8 @@ class ImgurRepostBot():
             msg = 'Error Posting Commment: {}'.format(e)
             self._output_error(msg)
 
-    def build_comment_message(self, values=None):
+    # TODO Remove
+    def build_comment_message_old(self, values=None):
         """
         Build the message to use in the comment.
 
@@ -285,6 +289,33 @@ class ImgurRepostBot():
 
         return self.config.comment_template.format(*values)
 
+    def build_comment_message(self, values=None):
+
+        if not values:
+            return None
+
+        # Build up replacement dict
+        out_dict = {
+            'count': len(values),
+            'g_url': values[0]['gallery_url'],
+            'd_url': values[0]['url'],
+            'submitted_epoch': values[0]['submitted'],
+            'submitted_human': time.strftime("%m/%d/%Y, %H:%M:%S", time.localtime(values[0]['submitted'])),
+            'user': values[0]['user'],
+        }
+
+        try:
+            final_message = self.config.comment_template.format(**out_dict)
+            print('Final Message: ' + final_message)
+            if len(final_message) > 140:
+                self.logger.warning('Message Length Is Over 140 Chars.  Will Be Trimmed')
+            return final_message
+        except KeyError as e:
+            msg = 'Error Generating Message: {}'.format(e)
+            self._output_error(msg)
+            return None
+
+
     def flush_failed_votes_and_comments(self):
         """
         If there have been any failed votes or comments (due to imgur server overload) try to redo them
@@ -317,12 +348,22 @@ class ImgurRepostBot():
         while True:
             if len(self.hash_processing.repost_queue) > 0:
                 current_repost = self.hash_processing.repost_queue.pop(0)
+                sorted_reposts = sorted(current_repost['older_images'], key=itemgetter('submitted'))
+
                 if self.config.leave_downvote:
                     self.downvote_repost(current_repost['image_id'])
 
+                if self.config.leave_comment:
+                    self.comment_repost(current_repost['image_id'], values=sorted_reposts)
 
                 self.detected_reposts += 1
-                # TODO add comment handling.  Records in repost queue need to be sorted to identify oldest post
+
+                if self.config.log_reposts:
+                    with open('repost.log', 'a+') as f:
+                        f.write('Repost Image: https://imgur.com/gallery/{}\n'.format(current_repost['image_id']))
+                        f.write('Matching Images:\n')
+                        for r in sorted_reposts:
+                            f.write(r['gallery_url'] + '\n')
 
     def _adjust_rate_limit_timing(self):
         """
