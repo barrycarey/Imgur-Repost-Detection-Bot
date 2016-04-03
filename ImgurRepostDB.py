@@ -5,6 +5,7 @@ from sqlalchemy import create_engine, DateTime, text
 import datetime
 import sys
 import time
+from pymongo import MongoClient
 
 class ImgurRepostDB():
     """
@@ -12,25 +13,60 @@ class ImgurRepostDB():
     checking hashes to find reposted content
     """
 
-    def __init__(self, db_user, db_pass, db_host, db_name):
+    def __init__(self, config):
 
         self.records_loaded = False
+        self.config = config  # TODO might be better to skip not set as instance variable
+        self.storage_engine = config.database_details['storage']
+
+        if self.storage_engine == 'mysql':
+            self._setup_mysql()
+        elif self.storage_engine == 'mongodb':
+            self._setup_mongodb()
+
+
+
+    def _setup_mysql(self):
 
         Base = automap_base()
 
-        engine = create_engine('mysql+pymysql://{}:{}@{}/{}'.format(db_user, db_pass, db_host, db_name))
+        engine = create_engine('mysql+pymysql://{}:{}@{}/{}'.format(self.config.database_details['User'],
+                                                                    self.config.database_details['Password'],
+                                                                    self.config.database_details['Host'],
+                                                                    self.config.database_details['Database']))
 
         try:
             Base.prepare(engine, reflect=True)
         except (OperationalError, InternalError) as e:
-            print('Error Connecting To Database {}'.format(e))
+            print('[!] ERROR: Problem Connecting To Database {}'.format(e))
             sys.exit(1)
 
         self.imgur_reposts = Base.classes.imgur_reposts
-        #self.session = Session(engine)
         self.Session = scoped_session(sessionmaker(bind=engine))
 
+    def _setup_mongodb(self):
+
+        self.mongodb_client = MongoClient()
+        self.mongodb_db = self.mongodb_client[self.config.database_details['Database']]
+
+
     def add_entry(self, record):
+        """
+        Forward add requests to correct mathod for storage engine
+        :param record:
+        :return:
+        """
+        if self.storage_engine == 'mysql':
+            self._add_entry_mysql(record)
+        elif self.storage_engine == 'mongodb':
+            self._add_entry_mongodb(record)
+
+
+    def _add_entry_mongodb(self, record):
+        record['date'] = datetime.datetime.utcnow()
+        result = self.mongodb_db[self.config.database_details['Collection']].insert_one(record)
+
+    def _add_entry_mysql(self, record):
         """
         Insert the provided data into the database
         """
@@ -56,20 +92,36 @@ class ImgurRepostDB():
             print('Exception during insert')
             print(e)
 
-    def update_entry(self, image_id, sub_time):
-        """
-        Temp method to update values in a new column
-        :param image_id:
-        :return:
-        """
-        print('Setting Image {} To Date Of {}'.format(image_id, sub_time))
-        local_session = self.Session()
-        local_session.query(self.imgur_reposts).filter_by(image_id=image_id).update({"submitted_to_imgur": sub_time})
-        local_session.commit()
-        local_session.close()
-
-
     def build_existing_ids(self):
+        if self.storage_engine == 'mysql':
+            return self._build_existing_ids_mysql()
+        elif self.storage_engine == 'mongodb':
+            return self._build_existing_ids_mongodb()
+
+    def _build_existing_ids_mongodb(self):
+        existing_records = []
+        image_ids = []
+        result = self.mongodb_db[self.config.database_details['Collection']].find()
+
+        for r in result:
+            image_ids.append(r['image_id'])
+            record = {
+                'image_id': r['image_id'],
+                'url': r['url'],
+                'gallery_url': 'https://imgur.com/gallery/{}'.format(r['image_id']),
+                'user': r['user'],
+                'submitted': r['submitted_to_imgur'],
+                'hash16': r['hash16'],
+                'hash64': r['hash64'],
+                'hash256': r['hash256']
+            }
+            existing_records.append(record)
+
+        print('Loaded {} Records From Database'.format(len(existing_records)))
+        self.records_loaded = True
+        return existing_records, image_ids
+
+    def _build_existing_ids_mysql(self):
         """
         Build a list of all existing Image IDs in the database.  The prevents us from reinserting an image we have already
         checked.

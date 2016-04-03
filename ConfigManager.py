@@ -41,7 +41,9 @@ class ConfigManager():
             sys.exit(1)
 
         self._set_ini_options(config)
+        self.database_details = self._setup_storage(config)
 
+        # TODO move these to method so we can validate if they are in the config.
         self.api_details = {'client_id': config['IMGURAPI']['ClientID'],
                             'client_secret': config['IMGURAPI']['ClientSecret'],
                             'access_token': config['IMGURAPI']['AccessToken'],
@@ -53,6 +55,44 @@ class ConfigManager():
                               'database': config['MYSQL']['Database']}
 
         threading.Thread(target=self.reload_ini, name='ConfigMonitor').start()
+
+    def _setup_storage(self, config):
+        """
+        Check the config options to see if Mongo or Mysql is selected.  Get required values from config
+        """
+
+        mysql_fields = ['Host', 'User', 'Password', 'Database']
+        mongodb_fields = ['Host', 'Database', 'Collection']
+        required_fields = []  # Used to store valid fields once we determine what storage option we're using
+        valid_storage_ops = ['mongodb', 'mysql']
+
+        if 'Storage' not in config['STORAGE']:
+            print('[!] ERROR: No storage option set in config')
+            sys.exit(1)
+
+        selected_storage = config['STORAGE']['Storage'].lower()
+
+        if selected_storage not in valid_storage_ops:
+            print('[!] ERROR: {} Is Not a Valid Storage Option'.format(config['STORAGE']['Storage']))
+            sys.exit(1)
+
+        database_details = {'storage': selected_storage}
+
+        if selected_storage == 'mysql':
+            required_fields = mysql_fields
+        elif selected_storage == 'mongodb':
+            required_fields = mongodb_fields
+
+        for field in required_fields:
+            try:
+                database_details[field] = config[selected_storage.upper()][field]
+            except KeyError:
+                print('[!] ERROR: Missing Required {} Field In Config.  Field: {}'.format(selected_storage, field))
+                sys.exit(1)
+
+        return database_details
+
+
 
     def reload_ini(self):
         """

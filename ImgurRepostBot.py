@@ -34,13 +34,9 @@ class ImgurRepostBot():
                                         self.config.api_details['access_token'],
                                         self.config.api_details['refresh_token'])
 
-        self.db_conn = ImgurRepostDB(self.config.mysql_details['user'],
-                                     self.config.mysql_details['password'],
-                                     self.config.mysql_details['host'],
-                                     self.config.mysql_details['database'])
+        self.db_conn = ImgurRepostDB(self.config)
 
         self.backfill_progress = 1 if self.config.backfill else 'Disabled'
-
 
         records, processed_ids = self.db_conn.build_existing_ids()
 
